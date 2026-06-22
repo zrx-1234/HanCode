@@ -1,0 +1,6 @@
+{
+  "apiKey": "sk-ant-...",
+  "model": "claude-opus-4-8",
+  "baseURL": "https://api.anthropic.com",
+  "maxTurns": 20
+}

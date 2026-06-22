@@ -1,0 +1,26 @@
+{
+  "name": "hancode",
+  "version": "0.1.0",
+  "description": "HanCode MVP coding agent built with Bun, TypeScript, and Claude tool use",
+  "type": "module",
+  "bin": {
+    "hancode": "src/hancode.ts",
+    "hancode-once": "src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/hancode.ts",
+    "chat": "bun run src/hancode.ts",
+    "once": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

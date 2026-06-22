@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.hancode/
+*.log
+
+# Local secrets. Use hancode.config.example.json as the template.
+hancode.config.json
