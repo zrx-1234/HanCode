@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ToolContext, ToolExecutionResult } from "../agent/types";
 import { errorToMessage } from "../utils/errors";
+import { bashTool } from "./bash";
 import { editFileTool } from "./editFile";
 import { listFilesTool } from "./listFiles";
 import { readFileTool } from "./readFile";
@@ -8,7 +9,7 @@ import { runCommandTool } from "./runCommand";
 import { searchTextTool } from "./searchText";
 import { writeFileTool } from "./writeFile";
 
-const tools = [readFileTool, listFilesTool, searchTextTool, editFileTool, writeFileTool, runCommandTool];
+const tools = [readFileTool, listFilesTool, searchTextTool, editFileTool, writeFileTool, runCommandTool, bashTool];
 
 export const toolDefinitions: Anthropic.Tool[] = tools.map(tool => tool.definition);
 

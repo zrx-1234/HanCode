@@ -4,7 +4,7 @@ HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + An
 
 ## 功能
 
-当前内置 6 个工具：
+当前内置 7 个工具：
 
 | 工具 | 作用 |
 |---|---|
@@ -13,7 +13,8 @@ HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + An
 | `search_text` | 使用正则搜索代码文本 |
 | `edit_file` | 对已读取文件执行一次精确替换 |
 | `write_file` | 创建或覆盖文件 |
-| `run_command` | 运行受策略限制的测试、git、构建命令 |
+| `run_command` | 使用 argv 风格运行受策略限制的测试、git、构建命令 |
+| `bash` | 运行 Bash 命令字符串；安全命令自动执行，危险/未知命令需确认 |
 
 ## 安装
 
@@ -79,15 +80,24 @@ HanCode MVP 做了这些限制：
 
 - 启动时由用户输入 workspace 路径，之后固定在该目录。
 - 文件路径会 canonicalize，并拒绝路径穿越、UNC/network path、workspace 外路径。
-- `run_command` 不接受 shell 字符串，只接受 `command + args`。
-- `run_command` 使用 `Bun.spawn([...], { cwd, shell: false })` 的 argv 风格执行。
+- `run_command` 不接受 shell 字符串，只接受 `command + args`，使用 `Bun.spawn([...], { cwd, shell: false })` 的 argv 风格执行。
+- `bash` 接受 Bash 命令字符串，并通过固定 Bash 可执行程序以 `--noprofile --norc -lc` 执行；Windows 下需要 Git Bash，或设置 `HANCODE_BASH`。
+- `bash` 会先解析/分类命令：明确安全的 read/test 命令可自动执行，修改 workspace、删除、安装依赖、未知或过于复杂的命令会交互确认。
+- `bash` 会拒绝明显绕过/外部风险模式，例如 download-and-execute、嵌套 shell wrapper、全局安装、workspace 外路径、系统路径、命令替换。
 - 命令默认 30s 超时，最大 5min。
-- stdout/stderr 输出有长度限制，避免大日志灌入上下文。
+- stdout/stderr 输出有长度限制，过大输出会保存到 `.hancode/command-output/`。
 - 命令写入 `.hancode/commands.jsonl` 审计日志。
-- 拒绝 `rm -rf`、`git push`、`git reset --hard`、全局安装、shell、系统目录修改等危险操作。
 - 对未知或会修改 workspace 的命令进行交互确认；非 TTY 下默认拒绝。
 
-MVP 没有真正 OS/container sandbox。允许的可执行程序仍可能修改 workspace 内文件。后续可以接 Docker、WSL 或其他 sandbox runner。
+示例：
+
+```json
+{ "command": "git status" }
+{ "command": "rg \"TODO\" src | head -20" }
+{ "command": "npm install", "description": "install project dependencies" }
+```
+
+MVP 没有真正 OS/container sandbox。允许的命令仍可能修改 workspace 内文件。后续可以接 Docker、WSL 或其他 sandbox runner。
 
 ## 开发检查
 

@@ -34,8 +34,14 @@ export const writeFileInput = z.object({
 });
 
 export const runCommandInput = z.object({
-  command: z.string(),
-  args: z.array(z.string()).optional(),
+  command: z.string().trim().min(1, "Command cannot be empty."),
+  args: z.array(z.string()).default([]),
   timeout_ms: z.number().int().positive().optional(),
-  reason: z.string().optional(),
+  reason: z.string().trim().optional(),
+});
+
+export const bashInput = z.object({
+  command: z.string().trim().min(1, "Command cannot be empty."),
+  timeout_ms: z.number().int().positive().optional(),
+  description: z.string().trim().optional(),
 });

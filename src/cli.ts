@@ -3,6 +3,9 @@ import { createInterface } from "node:readline/promises";
 import { loadConfig } from "./config";
 import { buildSystemPrompt } from "./agent/prompt";
 import { runAgent } from "./agent/loop";
+import { createAgentSession } from "./agent/types";
+import type { AgentSession, ConfirmationRequest } from "./agent/types";
+import { createTerminalConfirmation } from "./security/confirmation";
 import Anthropic from "@anthropic-ai/sdk";
 
 async function main(): Promise<void> {
@@ -24,18 +27,27 @@ async function main(): Promise<void> {
       return;
     }
 
+    const session = createAgentSession();
+    const confirm = createTerminalConfirmation(query => rl.question(query));
+
     while (true) {
       const input = (await rl.question("HanCode > ")).trim();
       if (!input) continue;
       if (input === "exit" || input === "quit") break;
-      await runOnce(input, config, system);
+      await runOnce(input, config, system, session, confirm);
     }
   } finally {
     rl.close();
   }
 }
 
-async function runOnce(prompt: string, config: ReturnType<typeof loadConfig>, system: string): Promise<void> {
+async function runOnce(
+  prompt: string,
+  config: ReturnType<typeof loadConfig>,
+  system: string,
+  session?: AgentSession,
+  confirm?: (request: ConfirmationRequest) => Promise<boolean>,
+): Promise<void> {
   try {
     await runAgent({
       prompt,
@@ -45,6 +57,8 @@ async function runOnce(prompt: string, config: ReturnType<typeof loadConfig>, sy
       baseURL: config.baseURL,
       maxTurns: config.maxTurns,
       system,
+      session,
+      confirm,
     });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {

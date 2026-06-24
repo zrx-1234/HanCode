@@ -1,10 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
 import { executeTool, toolDefinitions } from "../tools/index";
 import { renderToolEnd, renderToolStart } from "./render";
-import type { ReadState, ToolContext } from "./types";
+import { createAgentSession } from "./types";
+import type { AgentSession, ConfirmationRequest, ToolContext } from "./types";
 
 export type RunAgentOptions = {
   prompt: string;
@@ -15,6 +16,8 @@ export type RunAgentOptions = {
   maxTurns: number;
   system: string;
   signal?: AbortSignal;
+  session?: AgentSession;
+  confirm?: (request: ConfirmationRequest) => Promise<boolean>;
 };
 
 export async function runAgent(options: RunAgentOptions): Promise<void> {
@@ -24,17 +27,20 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   });
   const controller = new AbortController();
   const signal = options.signal ?? controller.signal;
-  const readState = new Map<string, ReadState>();
+  const session = options.session ?? createAgentSession();
+  const messages = session.messages;
+  const turnStart = messages.length;
   const ctx: ToolContext = {
     workspaceRoot: options.workspaceRoot,
-    readState,
-    confirm: confirmInTerminal,
+    readState: session.readState,
+    confirm: options.confirm ?? confirmInTerminal,
     audit: new JsonlAuditLogger(options.workspaceRoot),
     signal,
   };
 
-  const messages: MessageParam[] = [{ role: "user", content: options.prompt }];
+  messages.push({ role: "user", content: options.prompt });
 
+  try {
   for (let turn = 0; turn < options.maxTurns; turn++) {
     const stream = client.messages.stream({
       model: options.model,
@@ -65,7 +71,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
     for (const toolUse of toolUses) {
       renderToolStart(toolUse.name, toolUse.input);
       const result = await executeTool(toolUse.name, toolUse.input, ctx);
-      renderToolEnd(toolUse.name, Boolean(result.isError));
+      renderToolEnd(toolUse.name, Boolean(result.isError), result.content);
       toolResults.push({
         type: "tool_result",
         tool_use_id: toolUse.id,
@@ -78,4 +84,8 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   }
 
   console.log(`\n[HanCode] Stopped after reaching max turns (${options.maxTurns}).`);
+  } catch (error) {
+    if (messages.length === turnStart + 1) messages.splice(turnStart);
+    throw error;
+  }
 }
