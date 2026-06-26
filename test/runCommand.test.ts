@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { CommandAuditEntry, ConfirmationRequest, ToolContext } from "../src/agent/types";
 import { DEFAULT_OUTPUT_LIMIT } from "../src/security/outputLimit";
 import { interpretExit, persistLargeOutput, runCommandTool } from "../src/tools/runCommand";
+import { testWebConfig } from "./helpers";
 
 async function createContext(overrides: Partial<ToolContext> = {}) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "hancode-command-"));
@@ -19,6 +20,7 @@ async function createContext(overrides: Partial<ToolContext> = {}) {
     },
     audit: { log: async entry => void entries.push(entry) },
     signal: new AbortController().signal,
+    web: testWebConfig,
     ...overrides,
   };
   return { ctx, entries, confirmations };

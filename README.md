@@ -4,7 +4,7 @@ HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + An
 
 ## 功能
 
-当前内置 7 个工具：
+当前内置 9 个工具：
 
 | 工具 | 作用 |
 |---|---|
@@ -15,6 +15,8 @@ HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + An
 | `write_file` | 创建或覆盖文件 |
 | `run_command` | 使用 argv 风格运行受策略限制的测试、git、构建命令 |
 | `bash` | 运行 Bash 命令字符串；安全命令自动执行，危险/未知命令需确认 |
+| `web_search` | 联网检索公开网页，返回标题、URL 和摘要；需要启用 web 并配置搜索 API Key |
+| `web_fetch` | 抓取公开 HTTP/HTTPS URL 并提取可读文本；不支持认证、Cookie 或 JavaScript 渲染 |
 
 ## 安装
 
@@ -32,11 +34,44 @@ bun install
   "apiKey": "sk-ant-...",
   "model": "claude-opus-4-8",
   "baseURL": "https://api.anthropic.com",
-  "maxTurns": 20
+  "maxTurns": 20,
+  "effort": "auto",
+  "web": {
+    "enabled": false,
+    "allowedDomains": [],
+    "blockedDomains": [],
+    "search": {
+      "enabled": true,
+      "adapter": "searxng",
+      "maxResults": 8,
+      "tavilyApiKey": "",
+      "braveApiKey": "",
+      "searxngEndpointUrl": "https://your-searxng.example.com/search"
+    },
+    "fetch": {
+      "enabled": true,
+      "adapter": "http",
+      "timeoutMs": 30000,
+      "maxBytes": 1000000,
+      "maxChars": 60000,
+      "cacheTtlMs": 900000
+    }
+  }
 }
 ```
 
-以后修改模型、API Key 或代理 / 中转地址时，只改这个配置文件，不需要在终端设置环境变量。
+以后修改模型、API Key、代理 / 中转地址或思考深度时，只改这个配置文件，不需要在终端设置环境变量。
+
+`effort` 控制 Claude 的推理/输出努力程度，可选值为 `auto`、`low`、`medium`、`high`、`xhigh`、`max`。默认 `auto` 表示不显式传 `output_config.effort`，由模型/API 使用自动或默认深度；其他值会作为 `output_config.effort` 传入请求。
+
+`web.enabled` 默认关闭。开启后会向模型暴露 `web_search` 和 `web_fetch`：
+
+- `web_search` 支持 `searxng`、`tavily` 和 `brave` 适配器。`searxng` 不需要商业 API Key，但需要配置可访问的 `searxngEndpointUrl`，也可通过环境变量 `SEARXNG_ENDPOINT_URL` 提供；Tavily/Brave 的 API Key 可写在配置中，也可通过环境变量 `TAVILY_API_KEY` 或 `BRAVE_SEARCH_API_KEY` 提供。
+- `web_fetch` 默认使用直接 HTTP 抓取；也可配置为 `tavily` 提取模式并提供 Tavily Key。
+- Web 工具只访问公开网页：拒绝 URL 中的用户名/密码、localhost、私有网段、link-local/multicast 地址和被 blocklist 命中的域名。
+- `http://` 会自动升级为 `https://`；跨主机重定向不会被静默跟随。
+- 不支持认证、Cookie、自定义请求头、POST、表单提交或 JavaScript 渲染。
+- `allowedDomains` 和 `blockedDomains` 是全局域名 allow/block 策略。
 
 ## 运行
 
@@ -80,6 +115,7 @@ HanCode MVP 做了这些限制：
 
 - 启动时由用户输入 workspace 路径，之后固定在该目录。
 - 文件路径会 canonicalize，并拒绝路径穿越、UNC/network path、workspace 外路径。
+- Web 工具默认关闭；开启后仍只允许公开 HTTP/HTTPS 网页，拒绝 localhost、私有网段、URL 凭据和跨主机静默重定向。
 - `run_command` 不接受 shell 字符串，只接受 `command + args`，使用 `Bun.spawn([...], { cwd, shell: false })` 的 argv 风格执行。
 - `bash` 接受 Bash 命令字符串，并通过固定 Bash 可执行程序以 `--noprofile --norc -lc` 执行；Windows 下需要 Git Bash，或设置 `HANCODE_BASH`。
 - `bash` 会先解析/分类命令：明确安全的 read/test 命令可自动执行，修改 workspace、删除、安装依赖、未知或过于复杂的命令会交互确认。

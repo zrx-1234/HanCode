@@ -19,7 +19,9 @@ async function main(): Promise<void> {
 
     console.log(`HanCode workspace: ${config.workspaceRoot}`);
     console.log(`HanCode model: ${config.model}`);
+    console.log(`HanCode effort: ${config.effort}`);
     console.log(`HanCode base URL: ${config.baseURL}`);
+    console.log(`HanCode web: ${config.web.enabled ? "enabled" : "disabled"}`);
     if (!config.apiKey) console.log("HanCode API key: not set in hancode.config.json; SDK fallback auth will be used if available.");
 
     if (prompt) {
@@ -56,6 +58,8 @@ async function runOnce(
       model: config.model,
       baseURL: config.baseURL,
       maxTurns: config.maxTurns,
+      effort: config.effort,
+      web: config.web,
       system,
       session,
       confirm,

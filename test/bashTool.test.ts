@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandAuditEntry, ConfirmationRequest, ToolContext } from "../src/agent/types";
 import { bashTool } from "../src/tools/bash";
+import { testWebConfig } from "./helpers";
 
 async function createContext(overrides: Partial<ToolContext> = {}) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "hancode-bash-"));
@@ -18,6 +19,7 @@ async function createContext(overrides: Partial<ToolContext> = {}) {
     },
     audit: { log: async entry => void entries.push(entry) },
     signal: new AbortController().signal,
+    web: testWebConfig,
     ...overrides,
   };
   return { ctx, entries, confirmations };

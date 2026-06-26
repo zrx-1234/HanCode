@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { WebConfig } from "../config";
 
 export type ReadState = {
   relativePath: string;
@@ -8,13 +9,30 @@ export type ReadState = {
   fullyRead: boolean;
 };
 
+export type UsageTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+};
+
 export type AgentSession = {
   messages: MessageParam[];
   readState: Map<string, ReadState>;
+  usage: UsageTotals;
 };
 
 export function createAgentSession(): AgentSession {
-  return { messages: [], readState: new Map() };
+  return {
+    messages: [],
+    readState: new Map(),
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    },
+  };
 }
 
 export type ConfirmationRequest = {
@@ -51,6 +69,7 @@ export type ToolContext = {
   confirm: (request: ConfirmationRequest) => Promise<boolean>;
   audit: AuditLogger;
   signal: AbortSignal;
+  web: WebConfig;
 };
 
 export type ToolExecutionResult = {

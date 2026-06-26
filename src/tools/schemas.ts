@@ -45,3 +45,18 @@ export const bashInput = z.object({
   timeout_ms: z.number().int().positive().optional(),
   description: z.string().trim().optional(),
 });
+
+export const webSearchInput = z.object({
+  query: z.string().trim().min(1, "Query cannot be empty."),
+  allowed_domains: z.array(z.string().trim().min(1)).optional(),
+  blocked_domains: z.array(z.string().trim().min(1)).optional(),
+  num_results: z.number().int().positive().optional(),
+}).refine(value => !(value.allowed_domains && value.blocked_domains), {
+  message: "allowed_domains and blocked_domains cannot both be provided.",
+});
+
+export const webFetchInput = z.object({
+  url: z.string().trim().url(),
+  prompt: z.string().trim().optional(),
+  max_chars: z.number().int().positive().optional(),
+});

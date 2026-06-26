@@ -7,6 +7,7 @@ import type { ToolContext } from "../src/agent/types";
 import { JsonlAuditLogger } from "../src/security/auditLog";
 import { editFileTool } from "../src/tools/editFile";
 import { readFileTool } from "../src/tools/readFile";
+import { testWebConfig } from "./helpers";
 
 async function makeContext(): Promise<ToolContext> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "hancode-edit-"));
@@ -16,6 +17,7 @@ async function makeContext(): Promise<ToolContext> {
     confirm: async () => false,
     audit: new JsonlAuditLogger(workspaceRoot),
     signal: new AbortController().signal,
+    web: testWebConfig,
   };
 }
 
@@ -24,6 +26,12 @@ describe("edit_file", () => {
     const session = createAgentSession();
     expect(session.messages).toEqual([]);
     expect(session.readState.size).toBe(0);
+    expect(session.usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
   });
 
   test("requires read_file first", async () => {
