@@ -63,6 +63,28 @@ export type CommandAuditEntry = {
   outputPath?: string;
 };
 
+export type AgentEvent =
+  | { type: "run.started"; taskId: string; workspaceRoot: string; model: string }
+  | { type: "turn.started"; taskId: string; turn: number }
+  | { type: "thinking.started"; taskId: string }
+  | { type: "thinking.delta"; taskId: string; text: string }
+  | { type: "thinking.finished"; taskId: string }
+  | { type: "output.delta"; taskId: string; text: string }
+  | { type: "tool.started"; taskId: string; toolUseId: string; name: string; input: unknown }
+  | { type: "tool.finished"; taskId: string; toolUseId: string; name: string; isError: boolean; contentPreview: string }
+  | { type: "confirmation.requested"; taskId: string; confirmationId: string; request: ConfirmationRequest }
+  | { type: "confirmation.resolved"; taskId: string; confirmationId: string; allowed: boolean }
+  | { type: "usage.updated"; taskId: string; taskUsage: UsageTotals; sessionUsage: UsageTotals }
+  | { type: "run.refused"; taskId: string }
+  | { type: "run.max_turns"; taskId: string; maxTurns: number }
+  | { type: "run.stopped"; taskId: string }
+  | { type: "run.error"; taskId: string; message: string }
+  | { type: "run.completed"; taskId: string };
+
+export type AgentEventSink = (event: AgentEvent) => void | Promise<void>;
+
+export type PermissionMode = "safe" | "normal" | "super";
+
 export type ToolContext = {
   workspaceRoot: string;
   readState: Map<string, ReadState>;
@@ -70,6 +92,7 @@ export type ToolContext = {
   audit: AuditLogger;
   signal: AbortSignal;
   web: WebConfig;
+  permissionMode: PermissionMode;
 };
 
 export type ToolExecutionResult = {

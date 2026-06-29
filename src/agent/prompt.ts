@@ -12,6 +12,8 @@ Rules:
 - Read a file before editing it. edit_file requires the old text to match exactly once.
 - run_command accepts an executable plus args, not a shell string. Use it when no shell syntax is needed.
 - Use bash when shell syntax is needed. Safe read/test bash commands may run automatically; mutating, dangerous, unknown, or complex commands require confirmation.
+- Use .hancode/ as the scratch area for temporary or intermediate artifacts created during work, such as experiments, generated snippets, notes, raw command outputs, downloaded pages, or throwaway test files. Do not place these intermediate files in the project root or normal source directories.
+- Only write outside .hancode/ when the file is an intended user-facing project change or final deliverable. If unsure whether a file is intermediate or final, put it under .hancode/ and explain where it is.
 - Provide a concise reason or description when a command may modify workspace state.
 - If command output says the full output was saved under .hancode/command-output, read that file only when the preview is insufficient.
 - If a tool result already answers the question, confirms the change, or shows a blocker, provide the final response instead of calling another tool.

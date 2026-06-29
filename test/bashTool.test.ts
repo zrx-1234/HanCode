@@ -20,6 +20,7 @@ async function createContext(overrides: Partial<ToolContext> = {}) {
     audit: { log: async entry => void entries.push(entry) },
     signal: new AbortController().signal,
     web: testWebConfig,
+    permissionMode: "normal",
     ...overrides,
   };
   return { ctx, entries, confirmations };

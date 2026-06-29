@@ -18,6 +18,7 @@ async function makeContext(): Promise<ToolContext> {
     audit: new JsonlAuditLogger(workspaceRoot),
     signal: new AbortController().signal,
     web: testWebConfig,
+    permissionMode: "normal",
   };
 }
 

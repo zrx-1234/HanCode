@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { loadConfig } from "./config";
 import { buildSystemPrompt } from "./agent/prompt";
 import { runAgent } from "./agent/loop";
+import { createTerminalEventSink } from "./agent/render";
 import { createAgentSession } from "./agent/types";
 import type { AgentSession, ConfirmationRequest } from "./agent/types";
 import { createTerminalConfirmation } from "./security/confirmation";
@@ -50,6 +51,8 @@ async function runOnce(
   session?: AgentSession,
   confirm?: (request: ConfirmationRequest) => Promise<boolean>,
 ): Promise<void> {
+  const eventSink = createTerminalEventSink();
+
   try {
     await runAgent({
       prompt,
@@ -61,6 +64,7 @@ async function runOnce(
       effort: config.effort,
       web: config.web,
       system,
+      emit: eventSink,
       session,
       confirm,
     });

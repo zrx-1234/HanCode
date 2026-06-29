@@ -4,10 +4,9 @@ import type { EffortConfig, WebConfig } from "../config";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
 import { executeTool, getToolDefinitions } from "../tools/index";
-import { renderRunning, renderToolEnd, renderToolStart, renderUsageSummary } from "./render";
 import { addUsage, createUsageTotals } from "./usage";
 import { createAgentSession } from "./types";
-import type { AgentSession, ConfirmationRequest, ToolContext } from "./types";
+import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, ToolContext, UsageTotals } from "./types";
 
 const RECENT_TOOL_CALL_WINDOW = 20;
 const REPEATED_TOOL_CALL_LIMIT = 1;
@@ -22,12 +21,16 @@ export type RunAgentOptions = {
   effort: EffortConfig;
   web: WebConfig;
   system: string;
+  taskId?: string;
   signal?: AbortSignal;
   session?: AgentSession;
   confirm?: (request: ConfirmationRequest) => Promise<boolean>;
+  emit?: AgentEventSink;
+  permissionMode?: PermissionMode;
 };
 
 export async function runAgent(options: RunAgentOptions): Promise<void> {
+  const taskId = options.taskId ?? `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const client = new Anthropic({
     apiKey: options.apiKey || undefined,
     baseURL: options.baseURL,
@@ -40,6 +43,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   const runUsage = createUsageTotals();
   const recentToolCallSignatures: string[] = [];
   let softLimitWarningSent = false;
+  let thinkingStarted = false;
 
   const ctx: ToolContext = {
     workspaceRoot: options.workspaceRoot,
@@ -48,18 +52,19 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
     audit: new JsonlAuditLogger(options.workspaceRoot),
     signal,
     web: options.web,
+    permissionMode: options.permissionMode ?? "normal",
   };
 
   messages.push({ role: "user", content: options.prompt });
-
-  let running: ReturnType<typeof renderRunning> | undefined;
-  const stopRunning = (): void => {
-    running?.stop();
-    running = undefined;
-  };
+  await emit(options, { type: "run.started", taskId, workspaceRoot: options.workspaceRoot, model: options.model });
 
   try {
     for (let turn = 0; turn < options.maxTurns; turn++) {
+      if (signal.aborted) {
+        await emit(options, { type: "run.stopped", taskId });
+        return;
+      }
+
       if (!softLimitWarningSent && turn >= Math.floor(options.maxTurns * 0.8)) {
         messages.push({
           role: "user",
@@ -68,11 +73,11 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         softLimitWarningSent = true;
       }
 
-      running = renderRunning();
+      await emit(options, { type: "turn.started", taskId, turn: turn + 1 });
       const stream = client.messages.stream({
         model: options.model,
         max_tokens: 64_000,
-        thinking: { type: "adaptive" },
+        thinking: { type: "adaptive", display: "summarized" },
         output_config: options.effort === "auto" ? undefined : { effort: options.effort },
         system: options.system,
         tools: getToolDefinitions(options.web),
@@ -80,23 +85,33 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       }, { signal });
 
       stream.on("text", delta => {
-        stopRunning();
-        process.stdout.write(delta);
+        void emit(options, { type: "output.delta", taskId, text: delta });
+      });
+      stream.on("thinking", delta => {
+        if (!thinkingStarted) {
+          thinkingStarted = true;
+          void emit(options, { type: "thinking.started", taskId });
+        }
+        void emit(options, { type: "thinking.delta", taskId, text: delta });
       });
       const message = await stream.finalMessage();
-      stopRunning();
+      if (thinkingStarted) {
+        thinkingStarted = false;
+        await emit(options, { type: "thinking.finished", taskId });
+      }
       addUsage(runUsage, message.usage);
       addUsage(session.usage, message.usage);
       messages.push({ role: "assistant", content: message.content });
+      await emitUsage(options, taskId, runUsage, session.usage);
 
       if (message.stop_reason === "refusal") {
-        renderUsageSummary(runUsage, session.usage);
+        await emit(options, { type: "run.refused", taskId });
         return;
       }
 
       const toolUses = message.content.filter((block): block is ToolUseBlock => block.type === "tool_use");
       if (toolUses.length === 0) {
-        renderUsageSummary(runUsage, session.usage);
+        await emit(options, { type: "run.completed", taskId });
         return;
       }
 
@@ -108,8 +123,8 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 
         if (repeatedCount >= REPEATED_TOOL_CALL_LIMIT) {
           const content = "Repeated tool call refused: this exact tool call was already executed recently. Use the previous result already in context, choose a genuinely different necessary tool call, or provide the final answer now.";
-          renderToolStart(toolUse.name, toolUse.input);
-          renderToolEnd(toolUse.name, true, content);
+          await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input: toolUse.input });
+          await emit(options, { type: "tool.finished", taskId, toolUseId: toolUse.id, name: toolUse.name, isError: true, contentPreview: content });
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUse.id,
@@ -119,9 +134,9 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
           continue;
         }
 
-        renderToolStart(toolUse.name, toolUse.input);
+        await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input: toolUse.input });
         const result = await executeTool(toolUse.name, toolUse.input, ctx);
-        renderToolEnd(toolUse.name, Boolean(result.isError), result.content);
+        await emit(options, { type: "tool.finished", taskId, toolUseId: toolUse.id, name: toolUse.name, isError: Boolean(result.isError), contentPreview: preview(result.content) });
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
@@ -133,13 +148,35 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       messages.push({ role: "user", content: toolResults });
     }
 
-    console.log(`\n[HanCode] Stopped after reaching max turns (${options.maxTurns}).`);
-    renderUsageSummary(runUsage, session.usage);
+    await emit(options, { type: "run.max_turns", taskId, maxTurns: options.maxTurns });
   } catch (error) {
-    stopRunning();
+    if (signal.aborted) {
+      await emit(options, { type: "run.stopped", taskId });
+      return;
+    }
     if (messages.length === turnStart + 1) messages.splice(turnStart);
+    const message = error instanceof Error ? error.message : String(error);
+    await emit(options, { type: "run.error", taskId, message });
     throw error;
   }
+}
+
+async function emit(options: RunAgentOptions, event: AgentEvent): Promise<void> {
+  await options.emit?.(event);
+}
+
+async function emitUsage(options: RunAgentOptions, taskId: string, taskUsage: UsageTotals, sessionUsage: UsageTotals): Promise<void> {
+  await emit(options, {
+    type: "usage.updated",
+    taskId,
+    taskUsage: { ...taskUsage },
+    sessionUsage: { ...sessionUsage },
+  });
+}
+
+function preview(content: string, maxLength = 4_000): string {
+  if (content.length <= maxLength) return content;
+  return `${content.slice(0, maxLength)}\n\n[preview truncated]`;
 }
 
 function toolCallSignature(toolUse: ToolUseBlock): string {

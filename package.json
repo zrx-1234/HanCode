@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "HanCode MVP coding agent built with Bun, TypeScript, and Claude tool use",
   "type": "module",
+  "main": "out/main/index.cjs",
   "bin": {
     "hancode": "src/hancode.ts",
     "hancode-once": "src/cli.ts"
@@ -11,16 +12,31 @@
     "dev": "bun run src/hancode.ts",
     "chat": "bun run src/hancode.ts",
     "once": "bun run src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "desktop:dev": "node node_modules/electron-vite/bin/electron-vite.js dev --config apps/desktop/electron.vite.config.ts",
+    "desktop:build": "electron-vite build --config apps/desktop/electron.vite.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p apps/desktop/tsconfig.json --noEmit",
     "test": "bun test",
     "check": "bun run typecheck && bun test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
+    "@vitejs/plugin-react": "latest",
+    "electron-vite": "latest",
+    "highlight.js": "^11.11.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "vite": "latest",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "electron": "latest",
     "typescript": "latest"
   }
 }

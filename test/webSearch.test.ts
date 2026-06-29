@@ -36,6 +36,7 @@ function createContext(overrides: Partial<ToolContext> = {}): ToolContext {
     audit: { log: async () => undefined },
     signal: new AbortController().signal,
     web,
+    permissionMode: "normal",
     ...overrides,
   };
 }

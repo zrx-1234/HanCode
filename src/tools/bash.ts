@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import type { HanCodeTool } from "../agent/types";
 import { decideShellCommand } from "../security/shellPolicy";
 import { limitOutput } from "../security/outputLimit";
+import { applyPermissionMode } from "../security/permissionMode";
 import { bashInput } from "./schemas";
 import { interpretExit, persistLargeOutput } from "./runCommand";
 
@@ -34,7 +35,8 @@ export const bashTool: HanCodeTool = {
   async execute(input, ctx) {
     const parsed = bashInput.parse(input);
     const commandText = parsed.command;
-    const decision = decideShellCommand(commandText, ctx.workspaceRoot);
+    const policyDecision = decideShellCommand(commandText, ctx.workspaceRoot);
+    const decision = applyPermissionMode(policyDecision, ctx.permissionMode);
 
     if (decision.action === "refuse") {
       await ctx.audit.log({

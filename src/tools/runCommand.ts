@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HanCodeTool } from "../agent/types";
 import { decideCommand } from "../security/commandPolicy";
+import { applyPermissionMode } from "../security/permissionMode";
 import { DEFAULT_OUTPUT_LIMIT, limitOutput } from "../security/outputLimit";
 import { runCommandInput } from "./schemas";
 
@@ -38,7 +39,8 @@ export const runCommandTool: HanCodeTool = {
     const parsed = runCommandInput.parse(input);
     const command = parsed.command;
     const args = parsed.args;
-    const decision = decideCommand(command, args, ctx.workspaceRoot);
+    const policyDecision = decideCommand(command, args, ctx.workspaceRoot);
+    const decision = applyPermissionMode(policyDecision, ctx.permissionMode);
     const commandLine = [command, ...args];
 
     if (decision.action === "refuse") {
