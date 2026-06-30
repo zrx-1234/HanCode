@@ -225,10 +225,10 @@ function decideSimpleCommand(commandText: string, argv: string[], workspaceRoot:
   if (isGlobalInstall(exe, args)) return refuse(commandText, "Global dependency installs are not allowed.", warning);
   if ((exe === "curl" || exe === "wget") && looksLikeDownloadAndExecute(args)) return refuse(commandText, "Download-and-execute patterns are not allowed.", warning);
   if (exe === "git" && args[0] === "push") return confirm(commandText, "git push requires confirmation.", "This command may publish commits to a remote repository.");
-  if (exe === "git" && args[0] === "reset" && args.includes("--hard")) return confirm(commandText, "git reset --hard requires confirmation.", warning);
-  if (exe === "git" && args[0] === "clean" && args.some(isForceFlag)) return confirm(commandText, "git clean with force requires confirmation.", warning);
+  if (exe === "git" && args[0] === "reset" && args.includes("--hard")) return confirm(commandText, "git reset --hard requires confirmation.", warning, "destructive");
+  if (exe === "git" && args[0] === "clean" && args.some(isForceFlag)) return confirm(commandText, "git clean with force requires confirmation.", warning, "destructive");
 
-  if (exe === "rm") return confirm(commandText, "Deleting workspace files requires confirmation.", warning);
+  if (exe === "rm") return confirm(commandText, "Deleting workspace files requires confirmation.", warning, "destructive");
   if (exe === "git" && ["commit", "checkout", "switch", "reset", "restore"].includes(args[0] ?? "")) return confirm(commandText, "This git command may modify workspace state.", warning);
   if (isWorkspaceInstall(exe, args)) return confirm(commandText, "Installing dependencies modifies the workspace.", warning);
   if (WRITE_COMMANDS.has(exe) || args.some(arg => arg === "--write" || arg === "--fix" || arg === "--fix-type")) return confirm(commandText, "This command may modify workspace files.", warning);
@@ -381,8 +381,8 @@ function allowRead(commandText: string, reason: string): ShellDecision {
   return { action: "allow", reason, classification: "read", commandText };
 }
 
-function confirm(commandText: string, reason: string, warning?: string): ShellDecision {
-  return { action: "confirm", reason, classification: "unknown", warning, commandText };
+function confirm(commandText: string, reason: string, warning?: string, classification: "unknown" | "write" | "destructive" = "unknown"): ShellDecision {
+  return { action: "confirm", reason, classification, warning, commandText };
 }
 
 function refuse(commandText: string, reason: string, warning?: string): ShellDecision {
