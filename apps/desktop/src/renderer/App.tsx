@@ -19,6 +19,12 @@ type ToolItem = {
   result?: string;
 };
 
+type SubAgentItem = {
+  taskId: string;
+  subId: string;
+  status: "running" | "done" | "error" | "stopped";
+};
+
 type ConfirmationState = {
   confirmationId: string;
   request: ConfirmationRequest;
@@ -65,6 +71,8 @@ const dictionary = {
     stop: "停止",
     tools: "工具",
     noTools: "暂无工具调用。",
+    subAgents: "子 Agent",
+    runningSubAgents: "运行中子 Agent",
     resultPreview: "结果预览",
     task: "本次任务",
     session: "当前会话",
@@ -103,6 +111,8 @@ const dictionary = {
     stop: "Stop",
     tools: "Tools",
     noTools: "No tools yet.",
+    subAgents: "Sub-agents",
+    runningSubAgents: "Running sub-agents",
     resultPreview: "Result preview",
     task: "Task",
     session: "Session",
@@ -132,6 +142,7 @@ export default function App() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [tools, setTools] = useState<ToolItem[]>([]);
+  const [subAgents, setSubAgents] = useState<SubAgentItem[]>([]);
   const [status, setStatus] = useState<"idle" | "running" | "stopping" | "error">("idle");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -208,6 +219,7 @@ export default function App() {
     const text = prompt.trim();
     if (!text) return;
     setTools([]);
+    setSubAgents([]);
     setTaskUsage(emptyUsage);
     setError("");
     setStatus("running");
@@ -246,6 +258,9 @@ export default function App() {
 
   function handleAgentEvent(event: AgentEvent) {
     switch (event.type) {
+      case "run.started":
+        trackSubAgentStart(event.taskId);
+        break;
       case "output.delta":
         updateAssistant(event.taskId, message => ({ ...message, text: message.text + event.text }));
         break;
@@ -266,18 +281,42 @@ export default function App() {
         setSessionUsage(event.sessionUsage);
         break;
       case "run.completed":
+        trackSubAgentFinish(event.taskId, "done");
         finishTask(event.taskId, "done");
         break;
       case "run.refused":
       case "run.max_turns":
       case "run.stopped":
+        trackSubAgentFinish(event.taskId, "stopped");
         finishTask(event.taskId, "stopped");
         break;
       case "run.error":
+        trackSubAgentFinish(event.taskId, "error");
         finishTask(event.taskId, "error");
         setError(event.message);
         break;
     }
+  }
+
+  function trackSubAgentStart(taskId: string) {
+    const subId = extractSubAgentId(taskId);
+    if (!subId) return;
+    setSubAgents(items => {
+      if (items.some(item => item.taskId === taskId)) return items;
+      return [...items, { taskId, subId, status: "running" }];
+    });
+  }
+
+  function trackSubAgentFinish(taskId: string, status: SubAgentItem["status"]) {
+    const subId = extractSubAgentId(taskId);
+    if (!subId) return;
+    setSubAgents(items => items.map(item => item.taskId === taskId ? { ...item, status } : item));
+  }
+
+  function extractSubAgentId(taskId: string): string | undefined {
+    const index = taskId.indexOf("/sub-");
+    if (index < 0) return undefined;
+    return taskId.slice(index + 1);
   }
 
   function updateAssistant(taskId: string, updater: (message: Extract<ConversationMessage, { role: "assistant" }>) => ConversationMessage) {
@@ -362,6 +401,23 @@ export default function App() {
         <aside className="side-panel">
           <UsageBar label={t("task")} usage={taskUsage} t={t} />
           <UsageBar label={t("session")} usage={sessionUsage} t={t} />
+
+          <div className="usage-card">
+            <strong>{t("subAgents")}</strong>
+            <span>{subAgents.filter(a => a.status === "running").length} {t("runningSubAgents")}</span>
+          </div>
+          <div className="tool-list">
+            {subAgents.length === 0 && <p className="placeholder">{t("noTools")}</p>}
+            {subAgents.map(agent => (
+              <article key={agent.taskId} className={`tool-card ${agent.status}`}>
+                <header>
+                  <strong>{agent.subId}</strong>
+                  <span>{agent.status}</span>
+                </header>
+              </article>
+            ))}
+          </div>
+
           <h2>{t("tools")}</h2>
           <div className="tool-list">
             {tools.length === 0 && <p className="placeholder">{t("noTools")}</p>}
