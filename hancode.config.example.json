@@ -24,16 +24,5 @@
       "maxChars": 60000,
       "cacheTtlMs": 900000
     }
-  },
-  "pptMaster": {
-    "enabled": false,
-    "skillRoot": "skills/ppt-master",
-    "pythonExecutable": "python",
-    "projectsDir": ".hancode/ppt-master/projects",
-    "env": {
-      "IMAGE_BACKEND": "openai",
-      "OPENAI_API_KEY": "sk-...",
-      "OPENAI_MODEL": "gpt-image-2"
-    }
   }
 }
