@@ -1,7 +1,5 @@
-import electron from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import type { AgentEvent, PermissionMode } from "../../../../src/agent/types";
-
-const { contextBridge, ipcRenderer } = electron;
 
 export type HanCodeDesktopApi = {
   pickWorkspace(): Promise<string | null>;

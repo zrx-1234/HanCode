@@ -1,27 +1,4 @@
-//#region \0rolldown/runtime.js
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __copyProps = (to, from, except, desc) => {
-	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
-		key = keys[i];
-		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
-			get: ((k) => from[k]).bind(null, key),
-			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
-		});
-	}
-	return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
-	value: mod,
-	enumerable: true
-}) : target, mod));
-//#endregion
 let electron = require("electron");
-electron = __toESM(electron, 1);
 let node_path = require("node:path");
 let node_child_process = require("node:child_process");
 let node_fs = require("node:fs");
@@ -155,11 +132,10 @@ function resolveNpmShimTarget(shimName) {
 }
 //#endregion
 //#region apps/desktop/src/main/index.ts
-var { app, BrowserWindow, dialog, ipcMain, shell } = electron.default;
 var mainWindow;
 var sidecar;
 function createWindow() {
-	mainWindow = new BrowserWindow({
+	mainWindow = new electron.BrowserWindow({
 		width: 1200,
 		height: 800,
 		minWidth: 960,
@@ -177,49 +153,49 @@ function createWindow() {
 	if (process.env.ELECTRON_RENDERER_URL) mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
 	else mainWindow.loadFile((0, node_path.join)(__dirname, "../renderer/index.html"));
 }
-app.whenReady().then(() => {
-	sidecar = new SidecarClient(app);
+electron.app.whenReady().then(() => {
+	sidecar = new SidecarClient(electron.app);
 	registerIpc();
 	createWindow();
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) createWindow();
+	electron.app.on("activate", () => {
+		if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
 	});
 });
-app.on("window-all-closed", () => {
+electron.app.on("window-all-closed", () => {
 	sidecar.dispose();
-	if (process.platform !== "darwin") app.quit();
+	if (process.platform !== "darwin") electron.app.quit();
 });
 function registerIpc() {
-	ipcMain.handle("workspace:pick", async () => {
-		const result = await dialog.showOpenDialog(mainWindow, {
+	electron.ipcMain.handle("workspace:pick", async () => {
+		const result = await electron.dialog.showOpenDialog(mainWindow, {
 			properties: ["openDirectory"],
 			title: "Select HanCode workspace"
 		});
 		return result.canceled ? null : result.filePaths[0];
 	});
-	ipcMain.handle("workspace:open", async (_event, workspacePath) => {
+	electron.ipcMain.handle("workspace:open", async (_event, workspacePath) => {
 		return await sidecar.openWorkspace(workspacePath);
 	});
-	ipcMain.handle("workspace:show-in-folder", async (_event, workspacePath) => {
-		await shell.openPath(workspacePath);
+	electron.ipcMain.handle("workspace:show-in-folder", async (_event, workspacePath) => {
+		await electron.shell.openPath(workspacePath);
 	});
-	ipcMain.handle("task:start", async (_event, prompt) => {
+	electron.ipcMain.handle("task:start", async (_event, prompt) => {
 		const taskId = `desktop-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 		await sidecar.startTask(taskId, prompt);
 		return { taskId };
 	});
-	ipcMain.handle("task:stop", async (_event, taskId) => {
+	electron.ipcMain.handle("task:stop", async (_event, taskId) => {
 		await sidecar.stopTask(taskId);
 	});
-	ipcMain.handle("permission:setMode", async (_event, mode) => {
+	electron.ipcMain.handle("permission:setMode", async (_event, mode) => {
 		await sidecar.setPermissionMode(mode);
 	});
-	ipcMain.handle("shell:openExternal", async (_event, url) => {
+	electron.ipcMain.handle("shell:openExternal", async (_event, url) => {
 		const parsed = new URL(url);
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only http/https links can be opened.");
-		await shell.openExternal(parsed.toString());
+		await electron.shell.openExternal(parsed.toString());
 	});
-	ipcMain.handle("confirmation:respond", async (_event, confirmationId, allowed) => {
+	electron.ipcMain.handle("confirmation:respond", async (_event, confirmationId, allowed) => {
 		await sidecar.respondConfirmation(confirmationId, allowed);
 	});
 }

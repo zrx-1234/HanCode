@@ -1,8 +1,6 @@
-import electron from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { join } from "node:path";
 import { SidecarClient } from "./sidecarClient";
-
-const { app, BrowserWindow, dialog, ipcMain, shell } = electron;
 
 let mainWindow: InstanceType<typeof BrowserWindow> | undefined;
 let sidecar: SidecarClient;
