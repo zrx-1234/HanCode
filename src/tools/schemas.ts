@@ -60,3 +60,15 @@ export const webFetchInput = z.object({
   prompt: z.string().trim().optional(),
   max_chars: z.number().int().positive().optional(),
 });
+
+export const agentToolInput = z.object({
+  agents: z.array(
+    z.object({
+      id: z.string().optional(),
+      prompt: z.string().min(1, "Sub-agent prompt cannot be empty."),
+      max_turns: z.number().int().positive().optional(),
+      effort: z.enum(["auto", "low", "medium", "high", "xhigh", "max"]).optional(),
+      model: z.string().optional(),
+    }),
+  ).min(1, "At least one sub-agent is required."),
+});

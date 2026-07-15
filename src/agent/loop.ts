@@ -3,10 +3,10 @@ import type { ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resou
 import type { EffortConfig, WebConfig } from "../config";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
-import { executeTool, getToolDefinitions } from "../tools/index";
-import { addUsage, createUsageTotals } from "./usage";
+import { executeTool, getAllToolNames, getToolDefinitions } from "../tools/index";
+import { addUsage, createUsageTotals, mergeUsage } from "./usage";
 import { createAgentSession } from "./types";
-import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, ToolContext, UsageTotals } from "./types";
+import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, UsageTotals } from "./types";
 
 const RECENT_TOOL_CALL_WINDOW = 20;
 const REPEATED_TOOL_CALL_LIMIT = 1;
@@ -28,6 +28,7 @@ export type RunAgentOptions = {
   confirm?: (request: ConfirmationRequest) => Promise<boolean>;
   emit?: AgentEventSink;
   permissionMode?: PermissionMode;
+  allowedTools?: string[];
 };
 
 /**
@@ -96,6 +97,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 
   // Build the context object that every tool executor receives (workspace path,
   // confirmation callback, audit logger, abort signal, etc.).
+  const allowedTools = options.allowedTools ?? getAllToolNames(options.web);
   const ctx: ToolContext = {
     workspaceRoot: options.workspaceRoot,
     readState: session.readState,
@@ -104,7 +106,72 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
     signal,
     web: options.web,
     permissionMode: options.permissionMode ?? "normal",
+    allowedTools,
+    runSubAgent,
   };
+
+  // Factory used by the agent tool to spawn concurrent sub-agents.
+  async function runSubAgent(config: SubAgentConfig): Promise<SubAgentResult> {
+    const subId = config.id ?? `sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const subTaskId = `${taskId}/${subId}`;
+    const subSession: AgentSession = {
+      messages: [...session.messages],
+      readState: new Map(session.readState),
+      usage: createUsageTotals(),
+    };
+
+    const outputParts: string[] = [];
+    const subEmit: AgentEventSink = event => {
+      if (event.type === "output.delta") outputParts.push(event.text);
+      return options.emit?.(event);
+    };
+
+    const childController = new AbortController();
+    const onParentAbort = () => childController.abort();
+    if (signal.aborted) {
+      childController.abort();
+    } else {
+      signal.addEventListener("abort", onParentAbort);
+    }
+
+    let completed = false;
+    let errorMessage: string | undefined;
+
+    try {
+      await runAgent({
+        prompt: config.prompt,
+        workspaceRoot: options.workspaceRoot,
+        apiKey: options.apiKey,
+        model: config.model ?? options.model,
+        baseURL: options.baseURL,
+        maxTurns: config.max_turns ?? options.maxTurns,
+        effort: config.effort ?? options.effort,
+        web: options.web,
+        system: options.system,
+        taskId: subTaskId,
+        signal: childController.signal,
+        session: subSession,
+        confirm: options.confirm ?? confirmInTerminal,
+        emit: subEmit,
+        permissionMode: options.permissionMode,
+        allowedTools: allowedTools.filter(name => name !== "agent"),
+      });
+      completed = true;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      signal.removeEventListener("abort", onParentAbort);
+      mergeUsage(session.usage, subSession.usage);
+    }
+
+    return {
+      id: subId,
+      success: completed,
+      output: completed ? outputParts.join("") : undefined,
+      error: completed ? undefined : errorMessage,
+      usage: subSession.usage,
+    };
+  }
 
   // === Step 1: seed the conversation with the user prompt and notify observers. ===
   messages.push({ role: "user", content: options.prompt });
@@ -138,7 +205,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         thinking: { type: "adaptive", display: "summarized" },
         output_config: options.effort === "auto" ? undefined : { effort: options.effort },
         system: options.system,
-        tools: getToolDefinitions(options.web),
+        tools: getToolDefinitions(options.web, options.allowedTools),
         messages,
       }, { signal });
 

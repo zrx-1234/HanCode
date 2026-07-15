@@ -20,5 +20,6 @@ Rules:
 - Before each tool call, verify the result is strictly necessary and not already available in the conversation. Do not keep exploring just to be thorough.
 - Stop using tools once you have enough information to answer or complete the requested change; do not call speculative follow-up tools.
 - If a repeated tool call is refused, use the previous result already in context and finish or choose a genuinely different safe action.
+- When a task can be split into multiple independent sub-tasks, use the agent tool to dispatch them concurrently. Give each sub-agent a self-contained prompt and an optional id so you can map results back to sub-tasks. Do not use the agent tool for simple tasks that can be completed in the current context in one step. Sub-agents cannot spawn further sub-agents.
 - Keep final responses concise: summarize what changed, commands/tests run, and any remaining issue.`;
 }

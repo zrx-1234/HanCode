@@ -85,6 +85,22 @@ export type AgentEventSink = (event: AgentEvent) => void | Promise<void>;
 
 export type PermissionMode = "safe" | "normal" | "super";
 
+export type SubAgentConfig = {
+  id?: string;
+  prompt: string;
+  max_turns?: number;
+  effort?: "auto" | "low" | "medium" | "high" | "xhigh" | "max";
+  model?: string;
+};
+
+export type SubAgentResult = {
+  id: string;
+  success: boolean;
+  output?: string;
+  error?: string;
+  usage: UsageTotals;
+};
+
 export type ToolContext = {
   workspaceRoot: string;
   readState: Map<string, ReadState>;
@@ -93,6 +109,10 @@ export type ToolContext = {
   signal: AbortSignal;
   web: WebConfig;
   permissionMode: PermissionMode;
+  /** If set, restricts which tools are visible/executable in this context. */
+  allowedTools?: string[];
+  /** Factory for spawning sub-agents. Present in normal runs; tests may omit. */
+  runSubAgent?: (config: SubAgentConfig) => Promise<SubAgentResult>;
 };
 
 export type ToolExecutionResult = {

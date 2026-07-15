@@ -59,7 +59,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       );
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/article" },
@@ -85,7 +85,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/data.txt" },
@@ -105,7 +105,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     await webFetchTool.execute({ url: "http://example.com/page" }, createContext());
 
@@ -130,7 +130,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/old" },
@@ -152,7 +152,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       return new Response("evil", { status: 200 });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/redirect" },
@@ -171,7 +171,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       );
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
     const ctx = createContext();
 
     // First fetch hits the network
@@ -200,7 +200,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       );
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/long", max_chars: 100 },
@@ -216,7 +216,7 @@ describe("web_fetch integration (mocked HTTP)", () => {
       return new Response("Not Found", { status: 404 });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webFetchTool.execute(
       { url: "https://example.com/missing" },

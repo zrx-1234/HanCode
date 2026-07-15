@@ -77,7 +77,7 @@ describe("web_search integration (mocked Tavily)", () => {
       );
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webSearchTool.execute(
       { query: "bun test runner", num_results: 5 },
@@ -104,7 +104,7 @@ describe("web_search integration (mocked Tavily)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     await webSearchTool.execute(
       { query: "test", allowed_domains: ["bun.sh"] },
@@ -126,7 +126,7 @@ describe("web_search integration (mocked Tavily)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     await webSearchTool.execute(
       { query: "test", blocked_domains: ["spam.com"] },
@@ -149,7 +149,7 @@ describe("web_search integration (mocked Tavily)", () => {
       );
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const ctx = createContext({
       web: createEnabledWebConfig({ blockedDomains: ["evil.example.com"] }),
@@ -167,7 +167,7 @@ describe("web_search integration (mocked Tavily)", () => {
       return new Response("Rate limited", { status: 429 });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     const result = await webSearchTool.execute({ query: "test" }, createContext());
 
@@ -188,7 +188,7 @@ describe("web_search integration (mocked Tavily)", () => {
       });
     });
 
-    globalThis.fetch = mockFetch as typeof fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     await webSearchTool.execute({ query: "test", num_results: 100 }, createContext());
 

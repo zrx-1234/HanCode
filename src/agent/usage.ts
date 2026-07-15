@@ -31,3 +31,10 @@ export function totalUsageTokens(usage: UsageTotals): number {
 export function totalInputTokens(usage: UsageTotals): number {
   return usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens;
 }
+
+export function mergeUsage(totals: UsageTotals, source: UsageTotals): void {
+  totals.inputTokens += source.inputTokens;
+  totals.outputTokens += source.outputTokens;
+  totals.cacheCreationInputTokens += source.cacheCreationInputTokens;
+  totals.cacheReadInputTokens += source.cacheReadInputTokens;
+}

@@ -15,7 +15,7 @@ describe("applyPermissionMode", () => {
 
   test("safe mode turns allow into confirm", () => {
     const result = applyPermissionMode(allow, "safe");
-    expect(result.action).toBe("confirm");
+    expect(result.action as string).toBe("confirm");
     expect(result.reason).toContain("Safe mode requires confirmation");
   });
 
@@ -26,13 +26,13 @@ describe("applyPermissionMode", () => {
 
   test("super mode auto-approves confirm (non-destructive)", () => {
     const result = applyPermissionMode(confirm, "super");
-    expect(result.action).toBe("allow");
+    expect(result.action as string).toBe("allow");
     expect(result.reason).toContain("Super mode auto-approved");
   });
 
   test("super mode still requires confirmation for destructive commands", () => {
     const result = applyPermissionMode(destructive, "super");
-    expect(result.action).toBe("confirm");
+    expect(result.action as string).toBe("confirm");
     expect(result.reason).toBe("destructive");
   });
 
@@ -43,7 +43,7 @@ describe("applyPermissionMode", () => {
   test("preserves warning field through transformation", () => {
     const withWarning = { ...confirm, warning: "Be careful!" };
     const result = applyPermissionMode(withWarning, "super");
-    expect(result.action).toBe("allow");
+    expect(result.action as string).toBe("allow");
     expect(result.warning).toBe("Be careful!");
   });
 });

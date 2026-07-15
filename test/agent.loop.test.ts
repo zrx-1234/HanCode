@@ -107,7 +107,7 @@ async function createOptions(overrides: Partial<Parameters<typeof runAgent>[0]> 
     model: "claude-test",
     baseURL: "https://api.anthropic.test",
     maxTurns: 10,
-    effort: "auto",
+    effort: "auto" as const,
     web: defaultWeb,
     system: "You are HanCode.",
     emit: emitMock,
@@ -210,5 +210,116 @@ describe("agent loop end-to-end", () => {
     const toolFinished = events.filter((e) => e.type === "tool.finished");
     const repeated = toolFinished.find((e: any) => e.isError && e.contentPreview?.includes("Repeated tool call refused"));
     expect(repeated).toBeTruthy();
+  });
+
+  describe("sub-agents", () => {
+    test("parent can spawn a sub-agent and receive its result", async () => {
+      mockStreamConfigs = [
+        {
+          toolUses: [
+            {
+              id: "tool_agent",
+              name: "agent",
+              input: { agents: [{ id: "worker", prompt: "say hello" }] },
+            },
+          ],
+        },
+        { text: "hello from sub-agent" },
+        { text: "parent done" },
+      ];
+
+      const opts = await createOptions();
+      await runAgent(opts);
+
+      const events = getEvents(opts);
+      expect(events.some((e) => e.type === "output.delta" && "text" in e && e.text === "hello from sub-agent")).toBe(true);
+      expect(events.some((e) => e.type === "output.delta" && "text" in e && e.text === "parent done")).toBe(true);
+      expect(events.some((e) => e.type === "run.completed")).toBe(true);
+    });
+
+    test("sub-agent cannot call the agent tool (recursion guard)", async () => {
+      mockStreamConfigs = [
+        {
+          toolUses: [
+            {
+              id: "tool_agent",
+              name: "agent",
+              input: { agents: [{ id: "nested", prompt: "spawn another" }] },
+            },
+          ],
+        },
+        {
+          toolUses: [
+            {
+              id: "tool_nested_agent",
+              name: "agent",
+              input: { agents: [{ prompt: "this should fail" }] },
+            },
+          ],
+        },
+        { text: "sub-agent failed recursion" },
+        { text: "parent done" },
+      ];
+
+      const opts = await createOptions();
+      await runAgent(opts);
+
+      const events = getEvents(opts);
+      const nestedToolFinished = events.find(
+        (e) => e.type === "tool.finished" && "name" in e && e.name === "agent" && e.taskId !== opts.taskId,
+      );
+      expect(nestedToolFinished).toBeTruthy();
+      expect((nestedToolFinished as any).isError).toBe(true);
+    });
+
+    test("parent abort propagates to sub-agent", async () => {
+      mockStreamConfigs = [
+        {
+          toolUses: [
+            {
+              id: "tool_agent",
+              name: "agent",
+              input: { agents: [{ id: "worker", prompt: "long task" }] },
+            },
+          ],
+        },
+        { text: "sub should be aborted" },
+      ];
+
+      const controller = new AbortController();
+      const opts = await createOptions({ signal: controller.signal });
+
+      // Start the run and abort immediately while it is still in its first async step.
+      const runPromise = runAgent(opts);
+      controller.abort();
+      await runPromise;
+
+      const events = getEvents(opts);
+      expect(events.some((e) => e.type === "run.stopped")).toBe(true);
+    });
+
+    test("sub-agent usage is merged into parent session", async () => {
+      mockStreamConfigs = [
+        {
+          toolUses: [
+            {
+              id: "tool_agent",
+              name: "agent",
+              input: { agents: [{ id: "worker", prompt: "say hello" }] },
+            },
+          ],
+        },
+        { text: "hello" },
+        { text: "parent done" },
+      ];
+
+      const session = { messages: [], readState: new Map(), usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } };
+      const opts = await createOptions({ session });
+      await runAgent(opts);
+
+      // Parent turn (10 in + 20 out) + sub-agent turn (10 in + 20 out) + parent final turn (10 in + 20 out) = 90 total.
+      expect(session.usage.inputTokens).toBe(30);
+      expect(session.usage.outputTokens).toBe(60);
+    });
   });
 });
