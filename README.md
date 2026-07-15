@@ -1,6 +1,6 @@
 # HanCode
 
-HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + Anthropic Claude API tool use 实现。
+HanCode 是一个 Coding Agent，使用 Bun + TypeScript + Anthropic Claude API tool use 实现。支持**终端 CLI**和 **Electron 桌面端**两种使用方式。
 
 ## 功能
 
@@ -18,6 +18,70 @@ HanCode 是一个最小可运行 Coding Agent MVP，使用 Bun + TypeScript + An
 | `web_search` | 联网检索公开网页，返回标题、URL 和摘要；需要启用 web 并配置搜索 API Key |
 | `web_fetch` | 抓取公开 HTTP/HTTPS URL 并提取可读文本；不支持认证、Cookie 或 JavaScript 渲染 |
 
+## 使用场景
+
+### 1. 接手新项目，快速摸清结构
+
+你说：
+> "我刚 clone 了这个项目，帮我看看 src 目录下有哪些核心模块，找到入口文件并写份报告。"
+
+HanCode 会：
+1. `list_files` 列出 `src/**/*.ts`
+2. `read_file` 读取主入口和配置文件
+3. 给你一份项目结构摘要
+
+---
+
+### 2. 加一个新功能并跑测试
+
+你说：
+> "在 src/utils/ 下加一个 formatDate 函数，支持 ISO 和本地格式两种输出，然后给它们写测试并跑一下。"
+
+HanCode 会：
+1. `read_file` 先看看现有代码风格
+2. `write_file` 创建 `src/utils/date.ts`
+3. `write_file` 创建对应的测试文件
+4. `run_command` 执行 `bun test`
+5. 如果测试挂了，`read_file` 看报错，用 `edit_file` 修复，再跑一次
+
+---
+
+### 3. 排查 Bug
+
+你说：
+> "测试报错了，说是 formatDate 传入 null 时会崩溃，帮我找到问题并修复。"
+
+HanCode 会：
+1. `search_text` 找到 `formatDate` 的定义位置
+2. `read_file` 读取函数实现
+3. `edit_file` 加上空值保护
+4. `run_command` 跑测试确认修复成功
+
+---
+
+### 4. 查外部技术文档（需开启 web）
+
+你说：
+> "Bun 的测试断言有哪些 API？帮我搜一下官方文档的用法。"
+
+HanCode 会：
+1. `web_search` 搜索 "Bun test expect API"
+2. `web_fetch` 抓取官方文档页面
+3. 把关键用法整理给你
+
+---
+
+### 5. 批量重构
+
+你说：
+> "把项目里所有的 `console.log` 改成 `logger.debug`，改完后跑 typecheck 确认没报错。"
+
+HanCode 会：
+1. `search_text` 找到所有 `console.log` 出现的位置
+2. 逐个 `read_file` → `edit_file` 替换
+3. `run_command` 跑 `bun run typecheck`
+4. 如有报错继续定位修复
+
 ## 安装
 
 ```bash
@@ -25,9 +89,9 @@ cd E:\ZZZProjects\HanCode
 bun install
 ```
 
-配置 API Key、模型和 Base URL：
+配置自己的 API Key、模型和 Base URL，以及search相关配置：
 
-复制或直接编辑项目根目录的 `hancode.config.json`：
+复制`hancode.config.example.json`为`hancode.config.json`，然后编辑项目根目录的 `hancode.config.json`：
 
 ```json
 {
@@ -75,10 +139,14 @@ bun install
 
 ## 运行
 
-推荐入口：启动后会一直在终端中对话，直到输入 `exit` 或 `quit`：
+### CLI 模式
+
+推荐入口：启动后会在终端中持续对话，直到输入 `exit` 或 `quit`：
 
 ```bash
 bun run chat
+# 或开发热重载
+bun run dev
 ```
 
 等价于：
@@ -93,7 +161,7 @@ bun run src/hancode.ts
 hancode
 ```
 
-一次性任务入口仍然保留：
+一次性任务入口：
 
 ```bash
 bun run once "Create src/hello.ts that exports a hello function"
@@ -109,9 +177,46 @@ HanCode 后续的文件读写、搜索、编辑和命令执行都会固定在这
 
 退出：输入 `exit` 或 `quit`。
 
+### Desktop 模式
+
+启动 Electron 桌面应用（开发模式）：
+
+```bash
+bun run desktop:dev
+```
+
+构建桌面应用：
+
+```bash
+bun run desktop:build
+```
+
+Desktop 模式下通过 GUI 选择工作区、输入任务，Agent 在后台 Sidecar 进程中运行，结果实时展示在界面中。
+
+
+## 架构
+
+项目采用双模式 + Sidecar 架构：
+
+- **CLI 模式**：直接在终端运行，通过 `bun run chat` 或 `bun run once` 启动。
+- **Desktop 模式**：基于 Electron + React 的 GUI 应用。Agent 核心逻辑运行在 Bun Sidecar 子进程中，通过 JSONL 协议与 Electron 主进程通信。
+
+```
+src/
+├── hancode.ts          # CLI 交互入口
+├── cli.ts              # CLI 一次性任务入口
+├── desktop/sidecar.ts  # Desktop Sidecar 入口（Bun 子进程）
+├── agent/              # Agent 核心（Loop、Prompt、类型）
+├── tools/              # 工具实现（文件、搜索、命令、Web、Bash）
+├── security/           # 安全层（路径策略、命令策略、权限模式、审计）
+├── utils/              # 通用工具
+└── apps/desktop/       # Electron 桌面应用（React 前端 + Electron 主进程）
+```
+
+
 ## 安全边界
 
-HanCode MVP 做了这些限制：
+HanCode 做了这些限制：
 
 - 启动时由用户输入 workspace 路径，之后固定在该目录。
 - 文件路径会 canonicalize，并拒绝路径穿越、UNC/network path、workspace 外路径。
@@ -124,6 +229,10 @@ HanCode MVP 做了这些限制：
 - stdout/stderr 输出有长度限制，过大输出会保存到 `.hancode/command-output/`。
 - 命令写入 `.hancode/commands.jsonl` 审计日志。
 - 对未知或会修改 workspace 的命令进行交互确认；非 TTY 下默认拒绝。
+- 权限模式（Permission Mode）：支持 `safe` / `normal` / `super` 三档。
+  - `safe`：所有命令都需确认；
+  - `normal`：安全命令自动执行，危险/未知命令需确认（默认）；
+  - `super`：自动批准大部分命令，但 destructive 命令（如 `rm`、`git reset --hard`）永远需确认。
 
 示例：
 
@@ -133,7 +242,7 @@ HanCode MVP 做了这些限制：
 { "command": "npm install", "description": "install project dependencies" }
 ```
 
-MVP 没有真正 OS/container sandbox。允许的命令仍可能修改 workspace 内文件。后续可以接 Docker、WSL 或其他 sandbox runner。
+目前没有真正的 OS/container sandbox。允许的命令仍可能修改 workspace 内文件。后续可以接 Docker、WSL 或其他 sandbox runner。
 
 ## 开发检查
 
