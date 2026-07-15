@@ -13,6 +13,8 @@ declare global {
 
 type ToolItem = {
   id: string;
+  taskId: string;
+  toolUseId: string;
   name: string;
   input: unknown;
   status: "running" | "done" | "failed";
@@ -267,11 +269,13 @@ export default function App() {
       case "thinking.delta":
         updateAssistant(event.taskId, message => ({ ...message, thinking: message.thinking + event.text }));
         break;
-      case "tool.started":
-        setTools(items => [...items, { id: event.toolUseId, name: event.name, input: event.input, status: "running" }]);
+      case "tool.started": {
+        const toolId = `${event.taskId}/${event.toolUseId}`;
+        setTools(items => [...items, { id: toolId, taskId: event.taskId, toolUseId: event.toolUseId, name: event.name, input: event.input, status: "running" }]);
         break;
+      }
       case "tool.finished":
-        setTools(items => items.map(item => item.id === event.toolUseId ? { ...item, status: event.isError ? "failed" : "done", result: event.contentPreview } : item));
+        setTools(items => items.map(item => item.taskId === event.taskId && item.toolUseId === event.toolUseId ? { ...item, status: event.isError ? "failed" : "done", result: event.contentPreview } : item));
         break;
       case "confirmation.requested":
         setConfirmation({ confirmationId: event.confirmationId, request: event.request });
