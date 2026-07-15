@@ -114,8 +114,12 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   async function runSubAgent(config: SubAgentConfig): Promise<SubAgentResult> {
     const subId = config.id ?? `sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const subTaskId = `${taskId}/${subId}`;
+    // Sub-agents start with a fresh message history to avoid inheriting the
+    // parent's (potentially very long) conversation. The main agent is expected
+    // to write a self-contained prompt for each sub-agent. We still share a copy
+    // of readState so edit_file staleness checks remain consistent.
     const subSession: AgentSession = {
-      messages: [...session.messages],
+      messages: [],
       readState: new Map(session.readState),
       usage: createUsageTotals(),
     };
