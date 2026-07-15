@@ -318,7 +318,7 @@ export default function App() {
   }
 
   function extractSubAgentId(taskId: string): string | undefined {
-    const index = taskId.indexOf("/sub-");
+    const index = taskId.indexOf("/");
     if (index < 0) return undefined;
     return taskId.slice(index + 1);
   }
