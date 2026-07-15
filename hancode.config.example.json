@@ -2,5 +2,38 @@
   "apiKey": "sk-ant-...",
   "model": "claude-opus-4-8",
   "baseURL": "https://api.anthropic.com",
-  "maxTurns": 20
+  "maxTurns": 20,
+  "effort": "auto",
+  "web": {
+    "enabled": false,
+    "allowedDomains": [],
+    "blockedDomains": [],
+    "search": {
+      "enabled": true,
+      "adapter": "searxng",
+      "maxResults": 8,
+      "tavilyApiKey": "",
+      "braveApiKey": "",
+      "searxngEndpointUrl": "https://your-searxng.example.com/search"
+    },
+    "fetch": {
+      "enabled": true,
+      "adapter": "http",
+      "timeoutMs": 30000,
+      "maxBytes": 1000000,
+      "maxChars": 60000,
+      "cacheTtlMs": 900000
+    }
+  },
+  "pptMaster": {
+    "enabled": false,
+    "skillRoot": "skills/ppt-master",
+    "pythonExecutable": "python",
+    "projectsDir": ".hancode/ppt-master/projects",
+    "env": {
+      "IMAGE_BACKEND": "openai",
+      "OPENAI_API_KEY": "sk-...",
+      "OPENAI_MODEL": "gpt-image-2"
+    }
+  }
 }
