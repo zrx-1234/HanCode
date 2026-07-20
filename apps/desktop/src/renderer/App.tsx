@@ -155,6 +155,8 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => initialTheme());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => initialPermissionMode());
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const conversationBoxRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
   const t = (key: keyof typeof dictionary.en) => dictionary[locale][key];
 
@@ -180,8 +182,16 @@ export default function App() {
   }, [permissionMode, workspaceInfo]);
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  function handleConversationScroll() {
+    const el = conversationBoxRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 80;
+  }
 
   const canRun = useMemo(() => Boolean(workspaceInfo && prompt.trim() && status !== "running" && status !== "stopping"), [workspaceInfo, prompt, status]);
 
@@ -225,6 +235,7 @@ export default function App() {
     setTaskUsage(emptyUsage);
     setError("");
     setStatus("running");
+    stickToBottomRef.current = true;
     try {
       const result = await window.hancode.startTask(text);
       setTaskId(result.taskId);
@@ -388,7 +399,7 @@ export default function App() {
 
       <section className="main-grid">
         <section className="chat-panel">
-          <div className="conversation-box">
+          <div className="conversation-box" ref={conversationBoxRef} onScroll={handleConversationScroll}>
             {messages.length === 0 && <span className="placeholder">{t("emptyChat")}</span>}
             {messages.map(message => <ConversationBubble key={message.id} message={message} t={t} onToggleThinking={toggleThinking} />)}
             <div ref={conversationEndRef} />
