@@ -83,6 +83,7 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
           sendEvent({ type: "run.stopped", taskId: command.taskId });
           activeTask.controller.abort();
           resolveAllConfirmations(false);
+          activeTask = undefined;
         }
         sendResponse(command.id, true);
         return;
