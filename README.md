@@ -214,6 +214,32 @@ src/
 ```
 
 
+## 技能系统（Skills）
+
+HanCode 支持技能（Skill）扩展。技能是一组打包好的工作流指令（`SKILL.md`）+ 关联的 Python 脚本/模板，放在仓库 `skills/` 目录下，每个技能一个 `skill.json` 清单。当用户请求匹配某技能的触发词时，HanCode 会调用 `skill` 工具加载该技能的完整指令，然后用已有的 `bash`、`read_file`、`write_file`、`edit_file` 等工具按指令执行；指令中的 `${SKILL_DIR}` 会被解析成技能目录的绝对路径，可直接用 `bash` 调用其中的 Python 脚本。
+
+### 内置技能：ppt-master
+
+把 PDF / DOCX / URL / Markdown 等源文档转换成**可原生编辑的 PPTX**。多角色协作，逐页手写 SVG 后导出。触发词：`做PPT`、`做个PPT`、`生成PPT`、`制作演示文稿`、`make presentation`、`create ppt` 等。
+
+**首次使用前需安装 Python 依赖**（ppt-master 的脚本依赖 Python 运行时）：
+
+```bash
+# Windows 上若 python3 不可用，改用 python
+python -m pip install -r skills/ppt-master/requirements.txt
+```
+
+注意事项：
+
+- ppt-master 是长流程（逐页 SVG 由主 agent 手写）。建议在 `hancode.config.json` 把 `maxTurns` 调到 `100` 以上；单次跑不完时，可按技能内置的 split 模式用 `继续生成 projects/<项目名>` 断点续作。
+- 首次调用 `skill` 工具加载 ppt-master 时会自动检测 Python 与依赖是否就绪，缺失时会在回复里给出安装指引。
+- 设计确认（Strategist 阶段）当前默认走 ppt-master 自带的**聊天确认**流程（在对话里确认设计参数）；其浏览器确认页 / 实时预览（本地 5050 端口 Flask 服务）将在后续版本通过后台进程支持启用。
+- Windows 上 `python3` 命令常不存在，SKILL.md 里的 `python3 ...` 命令请改用 `python ...`。
+
+### 新增技能
+
+在 `skills/` 下建一个目录，放入 `skill.json`（字段：`name`、`description`、`triggers`、`entry`、`requiresPython`、`requirements`、`recommendedMaxTurns`、`notes`）和入口指令文档（如 `SKILL.md`）。HanCode 启动时自动扫描注册，无需改代码。
+
 ## 安全边界
 
 HanCode 做了这些限制：

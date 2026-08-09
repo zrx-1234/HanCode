@@ -21,6 +21,17 @@ export function assertInsideWorkspace(workspaceRoot: string, candidate: string):
   throw new UserVisibleError(`Path escapes workspace: ${candidate}`);
 }
 
+/** True if `candidate` is `root` itself or nested below it. Both must be absolute. */
+export function isInsideRoot(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** True if `candidate` is inside any of the given roots. Used to trust bundled skill dirs. */
+export function isInsideAnyRoot(roots: string[], candidate: string): boolean {
+  return roots.some(root => isInsideRoot(root, candidate));
+}
+
 export async function resolveWorkspacePath(
   workspaceRoot: string,
   inputPath: string,

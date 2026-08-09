@@ -72,3 +72,7 @@ export const agentToolInput = z.object({
     }),
   ).min(1, "At least one sub-agent is required."),
 });
+
+export const skillInput = z.object({
+  name: z.string().trim().min(1, "Skill name cannot be empty."),
+});

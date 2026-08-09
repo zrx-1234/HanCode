@@ -5,5 +5,10 @@ out/
 .hancode/
 *.log
 
+# Skill Python caches and virtualenvs
+skills/**/__pycache__/
+skills/**/*.pyc
+skills/*/.venv/
+
 # Local secrets. Use hancode.config.example.json as the template.
 hancode.config.json

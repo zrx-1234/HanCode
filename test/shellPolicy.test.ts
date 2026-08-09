@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { decideShellCommand } from "../src/security/shellPolicy";
 
 const root = process.cwd();
@@ -48,5 +50,17 @@ describe("decideShellCommand", () => {
     expect(decideShellCommand("rm -r dir", root).warning).toContain("recursively");
     expect(decideShellCommand("git commit --amend", root).warning).toContain("rewrites");
     expect(decideShellCommand("git reset --hard", root).warning).toContain("discard");
+  });
+
+  test("trusted external dirs let skill script paths through", () => {
+    const skillDir = resolve(tmpdir(), "hancode-skill-test");
+    const script = `${skillDir.replace(/\\/g, "/")}/scripts/run.py`;
+    expect(decideShellCommand(`python3 ${script}`, root).action).toBe("refuse");
+    expect(decideShellCommand(`python3 ${script}`, root, [skillDir]).action).toBe("confirm");
+  });
+
+  test("trusted dirs do not exempt system paths", () => {
+    const trusted = [resolve(tmpdir(), "hancode-skill-test")];
+    expect(decideShellCommand("cat /etc/passwd", root, trusted).action).toBe("refuse");
   });
 });

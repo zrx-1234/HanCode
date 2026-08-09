@@ -39,7 +39,7 @@ export const runCommandTool: HanCodeTool = {
     const parsed = runCommandInput.parse(input);
     const command = parsed.command;
     const args = parsed.args;
-    const policyDecision = decideCommand(command, args, ctx.workspaceRoot);
+    const policyDecision = decideCommand(command, args, ctx.workspaceRoot, ctx.trustedDirs ?? []);
     const decision = applyPermissionMode(policyDecision, ctx.permissionMode);
     const commandLine = [command, ...args];
 

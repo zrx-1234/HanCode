@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { WebConfig } from "../config";
+import type { SkillRegistry } from "../skills/registry";
 
 export type ReadState = {
   relativePath: string;
@@ -113,6 +114,10 @@ export type ToolContext = {
   allowedTools?: string[];
   /** Factory for spawning sub-agents. Present in normal runs; tests may omit. */
   runSubAgent?: (config: SubAgentConfig) => Promise<SubAgentResult>;
+  /** Skill registry; lets the `skill` tool load bundled workflow guides. */
+  skills?: SkillRegistry;
+  /** External directories (e.g. bundled skill dirs) trusted for script execution. */
+  trustedDirs?: string[];
 };
 
 export type ToolExecutionResult = {

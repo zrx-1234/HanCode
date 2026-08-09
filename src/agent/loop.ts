@@ -4,6 +4,7 @@ import type { EffortConfig, WebConfig } from "../config";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
 import { executeTool, getAllToolNames, getToolDefinitions } from "../tools/index";
+import { getSkillRegistry } from "../skills/registry";
 import { addUsage, createUsageTotals, mergeUsage } from "./usage";
 import { createAgentSession } from "./types";
 import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, UsageTotals } from "./types";
@@ -108,6 +109,8 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
     permissionMode: options.permissionMode ?? "normal",
     allowedTools,
     runSubAgent,
+    skills: getSkillRegistry(),
+    trustedDirs: getSkillRegistry().list().map(skill => skill.dir),
   };
 
   // Factory used by the agent tool to spawn concurrent sub-agents.

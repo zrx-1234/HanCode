@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import type { CommandDecision } from "./commandPolicy";
-import { assertInsideWorkspace } from "./paths";
+import { assertInsideWorkspace, isInsideAnyRoot } from "./paths";
 
 export type ShellDecision = CommandDecision & { commandText: string };
 
@@ -26,7 +26,7 @@ const WRITE_COMMANDS = new Set(["mkdir", "touch", "mv", "cp", "chmod", "chown", 
 const SYSTEM_PATH_MARKERS = ["/", "/etc", "/usr", "/bin", "/sbin", "/system", "c:\\windows", "c:/windows", "c:\\program files", "c:/program files"];
 const SAFE_ENV = new Set(["CI", "NO_COLOR", "FORCE_COLOR", "NODE_ENV", "BUN_CONFIG_VERBOSE_FETCH"]);
 
-export function decideShellCommand(commandText: string, workspaceRoot: string): ShellDecision {
+export function decideShellCommand(commandText: string, workspaceRoot: string, trustedDirs: string[] = []): ShellDecision {
   const text = commandText.trim();
   if (!text) return refuse(text, "Command cannot be empty.");
   if (hasCommandSubstitution(text)) return refuse(text, "Command substitution is not allowed in bash commands.");
@@ -45,14 +45,14 @@ export function decideShellCommand(commandText: string, workspaceRoot: string): 
     if (typeof parsed === "string") return confirm(text, parsed);
     if (parsed.argv.length === 0) return confirm(text, "Empty shell command segment requires confirmation.");
 
-    const redirectionDecision = decideRedirections(text, parsed.redirections, workspaceRoot);
+    const redirectionDecision = decideRedirections(text, parsed.redirections, workspaceRoot, trustedDirs);
     if (redirectionDecision.action === "refuse") return redirectionDecision;
     if (redirectionDecision.action === "confirm") sawConfirm ??= redirectionDecision;
 
     const envDecision = decideEnvironment(text, parsed.env);
     if (envDecision.action === "confirm") sawConfirm ??= envDecision;
 
-    const decision = decideSimpleCommand(text, parsed.argv, workspaceRoot, segment.operatorBefore);
+    const decision = decideSimpleCommand(text, parsed.argv, workspaceRoot, trustedDirs, segment.operatorBefore);
     if (decision.action === "refuse") return decision;
     if (decision.action === "confirm") sawConfirm ??= decision;
     if (decision.action === "allow" && decision.classification === "read") sawRead = true;
@@ -194,10 +194,10 @@ function flush(tokens: string[], token: string): void {
   if (token) tokens.push(token);
 }
 
-function decideRedirections(commandText: string, redirections: Redirection[], workspaceRoot: string): ShellDecision {
+function decideRedirections(commandText: string, redirections: Redirection[], workspaceRoot: string, trustedDirs: string[]): ShellDecision {
   for (const redirection of redirections) {
     if (!redirection.target) return confirm(commandText, "Shell redirection without a target requires confirmation.");
-    if (isUnsafePathToken(redirection.target, workspaceRoot)) return refuse(commandText, "Shell redirection targets a system path or path outside the workspace.");
+    if (isUnsafePathToken(redirection.target, workspaceRoot, trustedDirs)) return refuse(commandText, "Shell redirection targets a system path or path outside the workspace.");
     if (redirection.op === ">" || redirection.op === ">>") return confirm(commandText, "Output redirection may modify workspace files.", "This command writes shell output to a file.");
   }
   return allowRead(commandText, "Input redirection targets a workspace path.");
@@ -211,7 +211,7 @@ function decideEnvironment(commandText: string, env: string[]): ShellDecision {
   return allowRead(commandText, "Allowed safe environment assignment.");
 }
 
-function decideSimpleCommand(commandText: string, argv: string[], workspaceRoot: string, operatorBefore?: Segment["operatorBefore"]): ShellDecision {
+function decideSimpleCommand(commandText: string, argv: string[], workspaceRoot: string, trustedDirs: string[], operatorBefore?: Segment["operatorBefore"]): ShellDecision {
   const exe = baseCommand(argv[0]).toLowerCase();
   const args = argv.slice(1);
   const warning = getWarning(exe, args);
@@ -221,7 +221,7 @@ function decideSimpleCommand(commandText: string, argv: string[], workspaceRoot:
   }
   if (SHELLS.has(exe)) return refuse(commandText, "Nested shell wrappers are not allowed inside bash commands.", warning);
   if (isInlineCodeExecution(exe, args)) return refuse(commandText, "Inline code execution is not allowed in bash commands.", warning);
-  if (touchesUnsafePath(argv, workspaceRoot)) return refuse(commandText, "Command targets a system path or path outside the workspace.", warning);
+  if (touchesUnsafePath(argv, workspaceRoot, trustedDirs)) return refuse(commandText, "Command targets a system path or path outside the workspace.", warning);
   if (isGlobalInstall(exe, args)) return refuse(commandText, "Global dependency installs are not allowed.", warning);
   if ((exe === "curl" || exe === "wget") && looksLikeDownloadAndExecute(args)) return refuse(commandText, "Download-and-execute patterns are not allowed.", warning);
   if (exe === "git" && args[0] === "push") return confirm(commandText, "git push requires confirmation.", "This command may publish commits to a remote repository.");
@@ -250,9 +250,9 @@ function classifyAllowed(exe: string, args: string[]): "read" | "test" | undefin
   return undefined;
 }
 
-function touchesUnsafePath(argv: string[], workspaceRoot: string): boolean {
+function touchesUnsafePath(argv: string[], workspaceRoot: string, trustedDirs: string[]): boolean {
   const exe = baseCommand(argv[0]).toLowerCase();
-  return extractPathArgs(exe, argv.slice(1)).some(arg => isUnsafePathToken(arg, workspaceRoot));
+  return extractPathArgs(exe, argv.slice(1)).some(arg => isUnsafePathToken(arg, workspaceRoot, trustedDirs));
 }
 
 function extractPathArgs(exe: string, args: string[]): string[] {
@@ -289,7 +289,7 @@ function extractGitPathArgs(args: string[]): string[] {
   return [];
 }
 
-function isUnsafePathToken(value: string, workspaceRoot: string): boolean {
+function isUnsafePathToken(value: string, workspaceRoot: string, trustedDirs: string[]): boolean {
   if (!isPathLike(value)) return false;
   const normalized = normalizeShellPath(value);
   const lower = normalized.toLowerCase();
@@ -301,6 +301,7 @@ function isUnsafePathToken(value: string, workspaceRoot: string): boolean {
     assertInsideWorkspace(workspaceRoot, candidate);
     return false;
   } catch {
+    if (isInsideAnyRoot(trustedDirs, candidate)) return false;
     return true;
   }
 }

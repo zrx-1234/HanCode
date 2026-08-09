@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { decideCommand } from "../src/security/commandPolicy";
 
 const root = process.cwd();
@@ -66,5 +67,20 @@ describe("decideCommand", () => {
     expect(decideCommand("rm", ["-r", "dir"], root).warning).toContain("recursively");
     expect(decideCommand("git", ["commit", "--amend"], root).warning).toContain("rewrites");
     expect(decideCommand("git", ["checkout", "--", "."], root).warning).toContain("discard");
+  });
+
+  test("trusted external dirs let skill script paths through", () => {
+    const skillDir = resolve(tmpdir(), "hancode-skill-test");
+    const script = `${skillDir.replace(/\\/g, "/")}/scripts/run.py`;
+    // Without trustedDirs: refused because the script path is outside the workspace.
+    expect(decideCommand("python3", [script], root).action).toBe("refuse");
+    // With the skill dir trusted: path allowed; python3 still needs confirmation (unknown command).
+    expect(decideCommand("python3", [script], root, [skillDir]).action).toBe("confirm");
+  });
+
+  test("trusted dirs do not exempt system paths or UNC paths", () => {
+    const trusted = [resolve(tmpdir(), "hancode-skill-test")];
+    expect(decideCommand("cat", ["/etc/passwd"], root, trusted).action).toBe("refuse");
+    expect(decideCommand("cat", ["//host/share/x"], root, trusted).action).toBe("refuse");
   });
 });

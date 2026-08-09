@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { assertInsideWorkspace } from "./paths";
+import { assertInsideWorkspace, isInsideAnyRoot } from "./paths";
 
 export type CommandClassification = "read" | "test" | "write" | "destructive" | "unknown";
 
@@ -37,7 +37,7 @@ const SYSTEM_PATH_MARKERS = [
   "/system",
 ];
 
-export function decideCommand(command: string, args: string[], workspaceRoot: string): CommandDecision {
+export function decideCommand(command: string, args: string[], workspaceRoot: string, trustedDirs: string[] = []): CommandDecision {
   const exe = baseCommand(command).toLowerCase();
   const allValues = [command, ...args];
   const warning = getDestructiveWarning(exe, args);
@@ -45,7 +45,7 @@ export function decideCommand(command: string, args: string[], workspaceRoot: st
   if (!command.trim()) return { action: "refuse", reason: "Command cannot be empty.", classification: "unknown" };
   if (SHELLS.has(exe)) return { action: "refuse", reason: "Shell interpreters are not allowed in MVP.", classification: "unknown", warning };
   if (containsShellSyntax(allValues)) return { action: "refuse", reason: "Shell operators, pipes, redirects, and command substitutions are not allowed.", classification: "unknown", warning };
-  if (touchesUnsafePath(command, args, workspaceRoot)) return { action: "refuse", reason: "Command targets a system path or path outside the workspace.", classification: "unknown", warning };
+  if (touchesUnsafePath(command, args, workspaceRoot, trustedDirs)) return { action: "refuse", reason: "Command targets a system path or path outside the workspace.", classification: "unknown", warning };
   if (isGlobalInstall(exe, args)) return { action: "refuse", reason: "Global dependency installs are not allowed.", classification: "write", warning };
   if (isInlineCodeExecution(exe, args)) return { action: "refuse", reason: "Inline code execution is not allowed.", classification: "unknown", warning };
   if (exe === "git" && args[0] === "push") return { action: "refuse", reason: "git push is not allowed in MVP.", classification: "write", warning };
@@ -77,9 +77,9 @@ function containsShellSyntax(values: string[]): boolean {
   return values.some(value => SHELL_TOKENS.some(token => value.includes(token)));
 }
 
-function touchesUnsafePath(command: string, args: string[], workspaceRoot: string): boolean {
-  if (isUnsafePathToken(command, workspaceRoot)) return true;
-  return extractPathArgs(baseCommand(command).toLowerCase(), args).some(arg => isUnsafePathToken(arg, workspaceRoot));
+function touchesUnsafePath(command: string, args: string[], workspaceRoot: string, trustedDirs: string[]): boolean {
+  if (isUnsafePathToken(command, workspaceRoot, trustedDirs)) return true;
+  return extractPathArgs(baseCommand(command).toLowerCase(), args).some(arg => isUnsafePathToken(arg, workspaceRoot, trustedDirs));
 }
 
 function extractPathArgs(exe: string, args: string[]): string[] {
@@ -118,7 +118,7 @@ function isPathLike(value: string): boolean {
   return value.startsWith(".") || value.startsWith("/") || value.startsWith("\\") || /^[a-zA-Z]:[\\/]/.test(value) || value.includes("/") || value.includes("\\");
 }
 
-function isUnsafePathToken(value: string, workspaceRoot: string): boolean {
+function isUnsafePathToken(value: string, workspaceRoot: string, trustedDirs: string[]): boolean {
   if (!isPathLike(value)) return false;
   const lower = value.toLowerCase();
   if (SYSTEM_PATH_MARKERS.some(marker => lower === marker || lower.startsWith(`${marker}/`) || lower.startsWith(`${marker}\\`))) return true;
@@ -129,6 +129,9 @@ function isUnsafePathToken(value: string, workspaceRoot: string): boolean {
     assertInsideWorkspace(workspaceRoot, candidate);
     return false;
   } catch {
+    // Outside the workspace: permit only if inside a trusted external dir
+    // (e.g. a bundled skill's scripts directory). System/UNC paths above still refuse.
+    if (isInsideAnyRoot(trustedDirs, candidate)) return false;
     return true;
   }
 }

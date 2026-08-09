@@ -35,7 +35,7 @@ export const bashTool: HanCodeTool = {
   async execute(input, ctx) {
     const parsed = bashInput.parse(input);
     const commandText = parsed.command;
-    const policyDecision = decideShellCommand(commandText, ctx.workspaceRoot);
+    const policyDecision = decideShellCommand(commandText, ctx.workspaceRoot, ctx.trustedDirs ?? []);
     const decision = applyPermissionMode(policyDecision, ctx.permissionMode);
 
     if (decision.action === "refuse") {
