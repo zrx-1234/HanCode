@@ -46,7 +46,7 @@ type Theme = "dark" | "light";
 
 type ConversationMessage =
   | { id: string; taskId: string; role: "user"; text: string }
-  | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped" };
+  | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped"; taskStartMs?: number; taskEndMs?: number | null };
 
 const emptyUsage: UsageTotals = {
   inputTokens: 0,
@@ -242,7 +242,7 @@ export default function App() {
       setMessages(items => [
         ...items,
         { id: `${result.taskId}-user`, taskId: result.taskId, role: "user", text },
-        { id: `${result.taskId}-assistant`, taskId: result.taskId, role: "assistant", text: "", thinking: "", thinkingOpen: false, status: "streaming" },
+        { id: `${result.taskId}-assistant`, taskId: result.taskId, role: "assistant", text: "", thinking: "", thinkingOpen: false, status: "streaming", taskStartMs: Date.now() },
       ]);
       setPrompt("");
     } catch (err) {
@@ -339,7 +339,7 @@ export default function App() {
   }
 
   function finishTask(finishedTaskId: string, nextStatus: "done" | "error" | "stopped") {
-    updateAssistant(finishedTaskId, message => ({ ...message, status: nextStatus }));
+    updateAssistant(finishedTaskId, message => ({ ...message, status: nextStatus, taskEndMs: message.taskEndMs ?? Date.now() }));
     setStatus(nextStatus === "error" ? "error" : "idle");
     setTaskId(null);
   }
@@ -393,7 +393,7 @@ export default function App() {
         </section>
       )}
 
-      {permissionMode === "super" && <section className="warning-banner">{t("superModeWarning")}</section>}
+      {permissionMode === "super" && <section className="warning-banner"><span className="warning-icon" aria-hidden="true">⚠</span>{t("superModeWarning")}</section>}
 
       {error && <section className="error-banner">{error}</section>}
 
@@ -444,10 +444,12 @@ export default function App() {
       {confirmation && (
         <div className="modal-backdrop">
           <div className="modal">
-            <h2>{confirmation.request.title}</h2>
-            <p>{confirmation.request.message}</p>
-            {confirmation.request.commandText && <pre>{confirmation.request.commandText}</pre>}
-            {confirmation.request.command && <pre>{confirmation.request.command.join(" ")}</pre>}
+            <div className="modal-scroll">
+              <h2>{confirmation.request.title}</h2>
+              <p>{confirmation.request.message}</p>
+              {confirmation.request.commandText && <pre>{confirmation.request.commandText}</pre>}
+              {confirmation.request.command && <pre>{confirmation.request.command.join(" ")}</pre>}
+            </div>
             <div className="modal-actions">
               <button onClick={() => void answerConfirmation(false)}>{t("deny")}</button>
               <button className="primary" onClick={() => void answerConfirmation(true)}>{t("allow")}</button>
@@ -459,13 +461,40 @@ export default function App() {
   );
 }
 
+type AssistantMessage = Extract<ConversationMessage, { role: "assistant" }>;
+
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
 function ConversationBubble({ message, t, onToggleThinking }: { message: ConversationMessage; t: (key: keyof typeof dictionary.en) => string; onToggleThinking: (id: string) => void }) {
   if (message.role === "user") return <article className="message-bubble user"><div>{message.text}</div></article>;
+  return <AssistantBubble message={message} t={t} onToggleThinking={onToggleThinking} />;
+}
+
+function AssistantBubble({ message, t, onToggleThinking }: { message: AssistantMessage; t: (key: keyof typeof dictionary.en) => string; onToggleThinking: (id: string) => void }) {
+  const streaming = message.status === "streaming";
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!streaming) return;
+    const id = setInterval(() => tick(n => n + 1), 200);
+    return () => clearInterval(id);
+  }, [streaming]);
+
+  const startMs = message.taskStartMs ?? Date.now();
+  const elapsedMs = (message.taskEndMs ?? Date.now()) - startMs;
+
   return (
     <article className={`message-bubble assistant ${message.status}`}>
       {message.thinking && (
         <section className="thinking-panel">
-          <button className="thinking-toggle" onClick={() => onToggleThinking(message.id)}>{message.thinkingOpen ? "▾" : "▸"} {t("thinkingSummary")}</button>
+          <button className="thinking-toggle" onClick={() => onToggleThinking(message.id)}>
+            {message.thinkingOpen ? "▾" : "▸"} {t("thinkingSummary")} <span className="thinking-duration">({formatDuration(elapsedMs)})</span>
+          </button>
           {message.thinkingOpen && <pre>{message.thinking}</pre>}
         </section>
       )}
