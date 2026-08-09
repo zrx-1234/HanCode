@@ -1,0 +1,12 @@
+{
+  "name": "using-superpowers",
+  "description": "Use when starting any conversation - establishes how to find and use skills, requiring Skill tool invocation before ANY response including clarifying questions",
+  "triggers": [
+    "superpowers",
+    "how to use skills",
+    "using skills",
+    "技能入门"
+  ],
+  "entry": "SKILL.md",
+  "notes": "Adapted from Claude Code Superpowers (MIT, obra/superpowers). Tool mapping: Claude Code Skill tool -> HanCode skill tool; TodoWrite/EnterPlanMode do not exist in HanCode - track checklists inline in your responses and proceed without plan-mode. Other tool names (bash, read_file, edit_file, agent) map directly."
+}

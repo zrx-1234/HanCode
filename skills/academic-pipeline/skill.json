@@ -1,0 +1,13 @@
+{
+  "name": "academic-pipeline",
+  "description": "Orchestrator for the full academic research pipeline: research -> write -> integrity check -> review -> revise -> re-review -> re-revise -> final integrity check -> finalize. Coordinates deep-research, academic-paper, and academic-paper-reviewer into a seamless 10-stage workflow with mandatory integrity verification, two-stage peer review, and reproducible quality gates.",
+  "triggers": [
+    "academic pipeline", "research to paper", "full paper workflow",
+    "paper pipeline", "end-to-end paper", "research-to-publication",
+    "complete paper workflow",
+    "연구부터 논문까지", "연구 주제 설정부터 논문 완성까지", "논문 전체 워크플로"
+  ],
+  "entry": "SKILL.md",
+  "recommendedMaxTurns": 200,
+  "notes": "Orchestrator skill — dispatches deep-research, academic-paper, and academic-paper-reviewer. Shared resources at ../shared/ relative to this skill directory. The SKILL.md references 'shared/...' — resolve as '../shared/...'. This is a very long pipeline; set maxTurns high."
+}

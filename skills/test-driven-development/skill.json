@@ -1,0 +1,11 @@
+{
+  "name": "test-driven-development",
+  "description": "Use when implementing any feature or bugfix, before writing implementation code",
+  "triggers": [
+    "TDD",
+    "test driven",
+    "write tests first",
+    "测试驱动开发"
+  ],
+  "entry": "SKILL.md"
+}

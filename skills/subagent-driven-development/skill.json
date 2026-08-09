@@ -1,0 +1,10 @@
+{
+  "name": "subagent-driven-development",
+  "description": "Use when executing implementation plans with independent tasks in the current session",
+  "triggers": [
+    "subagent driven",
+    "sub-agent development",
+    "子 agent 驱动开发"
+  ],
+  "entry": "SKILL.md"
+}

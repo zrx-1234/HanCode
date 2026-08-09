@@ -1,0 +1,11 @@
+{
+  "name": "executing-plans",
+  "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints",
+  "triggers": [
+    "execute plan",
+    "execute the plan",
+    "执行计划",
+    "执行实现计划"
+  ],
+  "entry": "SKILL.md"
+}

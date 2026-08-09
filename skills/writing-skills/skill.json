@@ -1,0 +1,12 @@
+{
+  "name": "writing-skills",
+  "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment",
+  "triggers": [
+    "write a skill",
+    "create skill",
+    "new skill",
+    "写技能",
+    "创建技能"
+  ],
+  "entry": "SKILL.md"
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "./skill.schema.json",
+  "name": "ppt-master",
+  "description": "AI 生成 PPT:从 PDF/DOCX/URL/Markdown 生成可原生编辑的 PPTX。多角色协作,逐页手写 SVG 后导出。",
+  "version": "2.7.0",
+  "triggers": [
+    "做PPT",
+    "做个PPT",
+    "生成PPT",
+    "制作PPT",
+    "制作演示文稿",
+    "做幻灯片",
+    "make presentation",
+    "create presentation",
+    "create ppt",
+    "make slides",
+    "ppt-master"
+  ],
+  "entry": "SKILL.md",
+  "requiresPython": true,
+  "requirements": "requirements.txt",
+  "recommendedMaxTurns": 120,
+  "notes": "逐页 SVG 由主 agent 手写(SKILL.md 明确禁止脚本批量生成),属长流程;依赖 Python 及 python-pptx/PyMuPDF/mammoth/Pillow/flask 等。Windows 上若 python3 不可用,改用 python。"
+}

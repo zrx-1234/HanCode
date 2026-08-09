@@ -1,0 +1,11 @@
+{
+  "name": "writing-plans",
+  "description": "Use when you have a spec or requirements for a multi-step task, before touching code",
+  "triggers": [
+    "write a plan",
+    "implementation plan",
+    "写计划",
+    "实现计划"
+  ],
+  "entry": "SKILL.md"
+}

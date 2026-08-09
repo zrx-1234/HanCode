@@ -1,0 +1,11 @@
+{
+  "name": "receiving-code-review",
+  "description": "Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation",
+  "triggers": [
+    "code review feedback",
+    "reviewer comments",
+    "审查反馈",
+    "评审意见"
+  ],
+  "entry": "SKILL.md"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "systematic-debugging",
+  "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes",
+  "triggers": [
+    "debug",
+    "bug",
+    "test failure",
+    "调试",
+    "报错"
+  ],
+  "entry": "SKILL.md"
+}

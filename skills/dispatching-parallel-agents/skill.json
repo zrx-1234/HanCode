@@ -1,0 +1,11 @@
+{
+  "name": "dispatching-parallel-agents",
+  "description": "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies",
+  "triggers": [
+    "parallel agents",
+    "dispatch agents",
+    "并发任务",
+    "并行 agent"
+  ],
+  "entry": "SKILL.md"
+}

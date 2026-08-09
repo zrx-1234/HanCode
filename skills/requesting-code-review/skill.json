@@ -1,0 +1,11 @@
+{
+  "name": "requesting-code-review",
+  "description": "Use when completing tasks, implementing major features, or before merging to verify work meets requirements",
+  "triggers": [
+    "code review",
+    "review my code",
+    "代码审查",
+    "审查代码"
+  ],
+  "entry": "SKILL.md"
+}
