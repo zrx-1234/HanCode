@@ -1,0 +1,41 @@
+appId: com.hancode.desktop
+productName: HanCode
+copyright: Copyright © 2026 HanCode
+
+directories:
+  output: dist
+  buildResources: build
+
+# electron-vite bundles main/preload/renderer and `bun build --compile` bundles
+# the sidecar, so no node_modules need to ship inside the app archive.
+files:
+  - out/**
+  - "!out/sidecar/**"
+  - package.json
+  - "!node_modules/**/*"
+
+asar: true
+
+# Runtime files placed next to the app archive (process.resourcesPath):
+# - sidecar/hancode-sidecar.exe  — standalone agent process (Bun runtime embedded)
+# - skills/                      — skill packs (SKILL.md + scripts), read by the sidecar
+# - hancode.config.example.json  — seeded into userData on first launch
+extraResources:
+  - from: out/sidecar
+    to: sidecar
+  - from: skills
+    to: skills
+  - from: hancode.config.example.json
+    to: hancode.config.example.json
+
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: HanCode

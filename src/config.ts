@@ -178,6 +178,15 @@ function validatePositiveInteger(value: unknown, name: string): void {
   }
 }
 
+/**
+ * Directory that holds `hancode.config.json`.
+ *
+ * Normally the project root (resolved relative to this source file). When the
+ * sidecar is compiled into a standalone executable (`bun build --compile`),
+ * `import.meta.url` points into the virtual bunfs filesystem, so the desktop
+ * app passes the real directory (Electron's userData) via HANCODE_CONFIG_DIR.
+ */
 function getAppRoot(): string {
+  if (process.env.HANCODE_CONFIG_DIR) return resolve(process.env.HANCODE_CONFIG_DIR);
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }

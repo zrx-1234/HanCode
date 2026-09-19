@@ -10,8 +10,11 @@ import type { SkillManifest, SkillRecord } from "./types";
  * Resolved relative to this source file (src/skills/registry.ts -> ../../skills)
  * so it works both under `bun run src/...` and when the sidecar is spawned with
  * a cwd of the project root. Mirrors the `getAppRoot()` pattern in config.ts.
+ * HANCODE_SKILLS_DIR overrides this (used by the packaged desktop app, where
+ * `import.meta.url` points into the virtual bunfs filesystem).
  */
 export function getSkillsRoot(): string {
+  if (process.env.HANCODE_SKILLS_DIR) return resolve(process.env.HANCODE_SKILLS_DIR);
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, "..", "..", "skills");
 }

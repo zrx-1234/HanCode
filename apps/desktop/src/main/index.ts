@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { SidecarClient } from "./sidecarClient";
 
@@ -31,6 +32,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  ensureUserConfig();
   sidecar = new SidecarClient(app);
   registerIpc();
   createWindow();
@@ -44,6 +46,25 @@ app.on("window-all-closed", () => {
   sidecar.dispose();
   if (process.platform !== "darwin") app.quit();
 });
+
+/**
+ * Seeds `hancode.config.json` in userData on first launch so users have an
+ * obvious place to put their API key. The sidecar reads it from there
+ * (HANCODE_CONFIG_DIR) when the app is packaged.
+ */
+function ensureUserConfig(): void {
+  const target = join(app.getPath("userData"), "hancode.config.json");
+  if (existsSync(target)) return;
+  const source = app.isPackaged
+    ? join(process.resourcesPath, "hancode.config.example.json")
+    : join(app.getAppPath(), "hancode.config.example.json");
+  if (!existsSync(source)) return;
+  try {
+    copyFileSync(source, target);
+  } catch (error) {
+    console.error(`[hancode] failed to seed user config: ${error}`);
+  }
+}
 
 function registerIpc(): void {
   ipcMain.handle("workspace:pick", async () => {

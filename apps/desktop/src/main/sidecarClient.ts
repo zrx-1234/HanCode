@@ -15,6 +15,9 @@ export type SidecarResponse = {
 
 export type SidecarMessage = SidecarResponse | { type: "agent.event"; event: AgentEvent };
 
+/** Name of the compiled sidecar executable inside the packaged resources. */
+const SIDECAR_EXECUTABLE = "hancode-sidecar.exe";
+
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -74,15 +77,25 @@ export class SidecarClient {
   private ensureStarted(): void {
     if (this.child) return;
 
-    const bun = resolveBunExecutable();
-    const sidecarPath = this.app.isPackaged
-      ? `${process.resourcesPath}/sidecar.ts`
-      : "src/desktop/sidecar.ts";
-    const child = spawn(bun, ["run", sidecarPath], {
-      cwd: this.app.isPackaged ? process.resourcesPath : process.cwd(),
-      stdio: "pipe",
-      windowsHide: true,
-    });
+    // Packaged: the sidecar is a standalone executable compiled with
+    // `bun build --compile` (bundled Bun runtime, no host install needed).
+    // Dev: run the TypeScript entry through the host Bun executable.
+    const child = this.app.isPackaged
+      ? spawn(join(process.resourcesPath, "sidecar", SIDECAR_EXECUTABLE), [], {
+          cwd: process.resourcesPath,
+          stdio: "pipe",
+          windowsHide: true,
+          env: {
+            ...process.env,
+            HANCODE_CONFIG_DIR: this.app.getPath("userData"),
+            HANCODE_SKILLS_DIR: join(process.resourcesPath, "skills"),
+          },
+        })
+      : spawn(resolveBunExecutable(), ["run", "src/desktop/sidecar.ts"], {
+          cwd: process.cwd(),
+          stdio: "pipe",
+          windowsHide: true,
+        });
     this.child = child;
 
     child.stderr.on("data", chunk => {

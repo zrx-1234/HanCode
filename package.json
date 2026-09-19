@@ -14,6 +14,8 @@
     "once": "bun run src/cli.ts",
     "desktop:dev": "node node_modules/electron-vite/bin/electron-vite.js dev --config apps/desktop/electron.vite.config.ts",
     "desktop:build": "electron-vite build --config apps/desktop/electron.vite.config.ts",
+    "desktop:sidecar": "bun build --compile src/desktop/sidecar.ts --outfile out/sidecar/hancode-sidecar.exe",
+    "desktop:dist": "bun run desktop:build && bun run desktop:sidecar && electron-builder --win",
     "typecheck": "tsc --noEmit && tsc -p apps/desktop/tsconfig.json --noEmit",
     "test": "bun test",
     "check": "bun run typecheck && bun test"
@@ -37,6 +39,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "electron": "latest",
+    "electron-builder": "^26.15.3",
     "typescript": "latest"
   }
 }

@@ -193,6 +193,24 @@ bun run desktop:build
 
 Desktop 模式下通过 GUI 选择工作区、输入任务，Agent 在后台 Sidecar 进程中运行，结果实时展示在界面中。
 
+### 打包 Windows 安装程序（exe）
+
+```bash
+bun run desktop:dist
+```
+
+该命令依次执行：
+
+1. `electron-vite build` — 编译主进程 / preload / renderer；
+2. `bun build --compile` — 把 Agent sidecar 编译成独立可执行文件（内嵌 Bun 运行时，目标机器无需安装 Bun）；
+3. `electron-builder --win` — 产出 NSIS 安装包。
+
+产物在 `dist/HanCode-<version>-x64-setup.exe`（免安装版在 `dist/win-unpacked/HanCode.exe`），双击即可运行。安装包内含：
+
+- `resources/sidecar/hancode-sidecar.exe` — 独立 Agent 进程；
+- `resources/skills/` — 全部内置技能；
+- `resources/hancode.config.example.json` — 首次启动时自动复制到 `%APPDATA%\HanCode\hancode.config.json`，用户在该文件中填入 API Key、模型和 Base URL 即可（也可通过 `HANCODE_CONFIG_DIR` / `HANCODE_SKILLS_DIR` 环境变量覆盖配置与技能目录）。
+
 
 ## 架构
 
