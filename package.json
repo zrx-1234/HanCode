@@ -2,6 +2,7 @@
   "name": "hancode",
   "version": "1.0.0",
   "description": "HanCode MVP coding agent built with Bun, TypeScript, and Claude tool use",
+  "author": "HanCode Team",
   "type": "module",
   "main": "out/main/index.cjs",
   "bin": {
@@ -16,6 +17,7 @@
     "desktop:build": "electron-vite build --config apps/desktop/electron.vite.config.ts",
     "desktop:sidecar": "bun build --compile src/desktop/sidecar.ts --outfile out/sidecar/hancode-sidecar.exe",
     "desktop:dist": "bun run desktop:build && bun run desktop:sidecar && electron-builder --win",
+    "desktop:dist:cn": "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ bun run desktop:dist",
     "typecheck": "tsc --noEmit && tsc -p apps/desktop/tsconfig.json --noEmit",
     "test": "bun test",
     "check": "bun run typecheck && bun test"

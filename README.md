@@ -205,7 +205,18 @@ bun run desktop:dist
 2. `bun build --compile` — 把 Agent sidecar 编译成独立可执行文件（内嵌 Bun 运行时，目标机器无需安装 Bun）；
 3. `electron-builder --win` — 产出 NSIS 安装包。
 
-产物在 `dist/HanCode-<version>-x64-setup.exe`（免安装版在 `dist/win-unpacked/HanCode.exe`），双击即可运行。安装包内含：
+产物在 `dist/HanCode-<version>-x64-setup.exe`（免安装版在 `dist/win-unpacked/HanCode.exe`），双击即可运行。
+
+> **国内网络提示**：electron-builder 首次构建需从 GitHub 下载 Electron 发行版和 NSIS/签名工具链，直连易超时。可改用国内镜像：
+>
+> ```bash
+> bun run desktop:dist:cn
+> ```
+>
+> 下载的工具链会缓存在 `%LOCALAPPDATA%\electron-builder\Cache\`，之后即使不用镜像变量也能直接 `bun run desktop:dist`。
+> 另外若构建进程被中途终止，可能在 `%TEMP%` 留下 `eb-dl-*.lock` 陈旧锁文件，导致下次构建在下载阶段空等约 10 分钟——删除该锁文件即可立即恢复。
+
+安装包内含：
 
 - `resources/sidecar/hancode-sidecar.exe` — 独立 Agent 进程；
 - `resources/skills/` — 全部内置技能；
