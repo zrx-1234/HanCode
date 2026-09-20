@@ -44,6 +44,15 @@ type WorkspaceInfo = {
 type Locale = "zh" | "en";
 type Theme = "dark" | "light";
 
+type ConfigDraft = {
+  apiKey: string;
+  model: string;
+  baseURL: string;
+  maxTurns: string;
+  effort: string;
+  webEnabled: boolean;
+};
+
 type ConversationMessage =
   | { id: string; taskId: string; role: "user"; text: string }
   | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped"; taskStartMs?: number; taskEndMs?: number | null };
@@ -57,10 +66,8 @@ const emptyUsage: UsageTotals = {
 
 const dictionary = {
   zh: {
-    title: "HanCode 桌面端",
     selectWorkspace: "请选择工作区开始",
     pickWorkspace: "选择工作区",
-    workspacePath: "工作区路径",
     openInExplorer: "在文件管理器中打开",
     model: "模型",
     effort: "深度",
@@ -95,12 +102,20 @@ const dictionary = {
     normalMode: "常规模式",
     superMode: "超级模式",
     superModeWarning: "超级模式：命令将自动执行，但硬拒绝的危险命令仍会被阻止。",
+    settings: "设置",
+    settingsTitle: "模型与运行配置",
+    configFile: "配置文件",
+    apiKey: "API Key",
+    modelLabel: "模型",
+    baseURL: "Base URL",
+    save: "保存",
+    cancel: "取消",
+    webToggle: "启用联网（web_search / web_fetch）",
+    saveFailed: "保存失败",
   },
   en: {
-    title: "HanCode Desktop",
     selectWorkspace: "Select a workspace to begin",
     pickWorkspace: "Pick Workspace",
-    workspacePath: "Workspace path",
     openInExplorer: "Open in Explorer",
     model: "Model",
     effort: "Effort",
@@ -135,6 +150,16 @@ const dictionary = {
     normalMode: "Normal mode",
     superMode: "Super mode",
     superModeWarning: "Super mode: commands run automatically, but hard-refused dangerous commands are still blocked.",
+    settings: "Settings",
+    settingsTitle: "Model & runtime settings",
+    configFile: "Config file",
+    apiKey: "API Key",
+    modelLabel: "Model",
+    baseURL: "Base URL",
+    save: "Save",
+    cancel: "Cancel",
+    webToggle: "Enable web tools (web_search / web_fetch)",
+    saveFailed: "Save failed",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -154,6 +179,10 @@ export default function App() {
   const [locale, setLocale] = useState<Locale>(() => initialLocale());
   const [theme, setTheme] = useState<Theme>(() => initialTheme());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => initialPermissionMode());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState<ConfigDraft | null>(null);
+  const [settingsError, setSettingsError] = useState("");
+  const [settingsPath, setSettingsPath] = useState("");
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const conversationBoxRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -263,6 +292,52 @@ export default function App() {
     setConfirmation(null);
   }
 
+  async function openSettings() {
+    setSettingsError("");
+    try {
+      const { path, config } = await window.hancode.getConfig();
+      setSettingsPath(path);
+      setSettingsDraft({
+        apiKey: typeof config.apiKey === "string" ? config.apiKey : "",
+        model: typeof config.model === "string" ? config.model : "",
+        baseURL: typeof config.baseURL === "string" ? config.baseURL : "",
+        maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
+        effort: typeof config.effort === "string" ? config.effort : "auto",
+        webEnabled: Boolean((config.web as { enabled?: boolean } | undefined)?.enabled),
+      });
+      setSettingsOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function saveSettings() {
+    if (!settingsDraft) return;
+    setSettingsError("");
+    try {
+      const { path, config } = await window.hancode.getConfig();
+      const next = { ...config };
+      if (settingsDraft.apiKey.trim()) next.apiKey = settingsDraft.apiKey.trim();
+      else delete next.apiKey;
+      if (settingsDraft.model.trim()) next.model = settingsDraft.model.trim();
+      else delete next.model;
+      if (settingsDraft.baseURL.trim()) next.baseURL = settingsDraft.baseURL.trim();
+      else delete next.baseURL;
+      const maxTurns = Number(settingsDraft.maxTurns);
+      if (settingsDraft.maxTurns.trim() !== "" && Number.isInteger(maxTurns) && maxTurns > 0) next.maxTurns = maxTurns;
+      else delete next.maxTurns;
+      if (settingsDraft.effort !== "auto") next.effort = settingsDraft.effort;
+      else delete next.effort;
+      next.web = { ...(next.web as object | undefined), enabled: settingsDraft.webEnabled };
+      const result = await window.hancode.updateConfig(next);
+      setSettingsPath(result.path);
+      if (result.workspace) setWorkspaceInfo(result.workspace as WorkspaceInfo);
+      setSettingsOpen(false);
+    } catch (err) {
+      setSettingsError(`${t("saveFailed")}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -351,47 +426,50 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>{t("title")}</h1>
-          <p>{workspaceInfo?.workspaceRoot ?? t("selectWorkspace")}</p>
-        </div>
-        <div className="topbar-actions">
-          <label>{t("permission")}
-            <select value={permissionMode} onChange={event => setPermissionMode(event.target.value as PermissionMode)}>
-              <option value="safe">{t("safeMode")}</option>
-              <option value="normal">{t("normalMode")}</option>
-              <option value="super">{t("superMode")}</option>
-            </select>
-          </label>
-          <label>{t("language")}
-            <select value={locale} onChange={event => setLocale(event.target.value as Locale)}>
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-            </select>
-          </label>
-          <label>{t("theme")}
-            <select value={theme} onChange={event => setTheme(event.target.value as Theme)}>
-              <option value="dark">{t("dark")}</option>
-              <option value="light">{t("light")}</option>
-            </select>
-          </label>
-          <button onClick={pickWorkspace}>{t("pickWorkspace")}</button>
-        </div>
+        <button className="icon-button" onClick={() => void pickWorkspace()} title={t("pickWorkspace")} aria-label={t("pickWorkspace")}>
+          <FolderIcon />
+        </button>
+        {workspaceInfo && <span className="workspace-dot" title={workspaceInfo.workspaceRoot} aria-hidden="true" />}
+        <input
+          className="workspace-input"
+          value={workspacePath}
+          onChange={event => setWorkspacePath(event.target.value)}
+          onKeyDown={event => { if (event.key === "Enter") void openWorkspace(); }}
+          placeholder={t("selectWorkspace")}
+          spellCheck={false}
+          title={workspaceInfo?.workspaceRoot}
+        />
+        <select className="ghost-select" value={permissionMode} onChange={event => setPermissionMode(event.target.value as PermissionMode)} title={t("permission")} aria-label={t("permission")}>
+          <option value="safe">{t("safeMode")}</option>
+          <option value="normal">{t("normalMode")}</option>
+          <option value="super">{t("superMode")}</option>
+        </select>
+        <select className="ghost-select" value={locale} onChange={event => setLocale(event.target.value as Locale)} title={t("language")} aria-label={t("language")}>
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
+        <select className="ghost-select" value={theme} onChange={event => setTheme(event.target.value as Theme)} title={t("theme")} aria-label={t("theme")}>
+          <option value="dark">{t("dark")}</option>
+          <option value="light">{t("light")}</option>
+        </select>
+        <button
+          className="icon-button"
+          disabled={!workspacePath.trim() && !workspaceInfo?.workspaceRoot}
+          onClick={() => void showWorkspaceInFolder()}
+          title={t("openInExplorer")}
+          aria-label={t("openInExplorer")}
+        >
+          <ExternalIcon />
+        </button>
+        <button
+          className="icon-button"
+          onClick={() => void openSettings()}
+          title={t("settings")}
+          aria-label={t("settings")}
+        >
+          <GearIcon />
+        </button>
       </header>
-
-      <section className="workspace-row">
-        <input value={workspacePath} onChange={event => setWorkspacePath(event.target.value)} placeholder={t("workspacePath")} />
-        <button disabled={!workspacePath.trim() && !workspaceInfo?.workspaceRoot} onClick={() => void showWorkspaceInFolder()}>{t("openInExplorer")}</button>
-      </section>
-
-      {workspaceInfo && (
-        <section className="status-row">
-          <span>{t("model")}: {workspaceInfo.model}</span>
-          <span>{t("effort")}: {workspaceInfo.effort}</span>
-          <span>{t("maxTurns")}: {workspaceInfo.maxTurns}</span>
-          <span>{t("web")}: {workspaceInfo.webEnabled ? t("enabled") : t("disabled")}</span>
-        </section>
-      )}
 
       {permissionMode === "super" && <section className="warning-banner"><span className="warning-icon" aria-hidden="true">⚠</span>{t("superModeWarning")}</section>}
 
@@ -406,9 +484,14 @@ export default function App() {
           </div>
           <div className="composer">
             <textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder={t("askPlaceholder")} />
-            <div className="composer-actions">
-              <button disabled={!canRun} onClick={() => void startTask()}>{t("run")}</button>
-              <button disabled={status !== "running" || !taskId} onClick={() => void stopTask()}>{t("stop")}</button>
+            <div className="composer-footer">
+              <span className="composer-meta">
+                {workspaceInfo && `${workspaceInfo.model} · ${t("effort")} ${workspaceInfo.effort} · ${t("maxTurns")} ${workspaceInfo.maxTurns} · ${t("web")} ${workspaceInfo.webEnabled ? t("enabled") : t("disabled")}`}
+              </span>
+              <div className="composer-actions">
+                <button className="primary" disabled={!canRun} onClick={() => void startTask()}>{t("run")}</button>
+                <button disabled={status !== "running" || !taskId} onClick={() => void stopTask()}>{t("stop")}</button>
+              </div>
             </div>
           </div>
         </section>
@@ -433,7 +516,7 @@ export default function App() {
             ))}
           </div>
 
-          <h2>{t("tools")}</h2>
+          <h2 className="side-heading">{t("tools")}</h2>
           <div className="tool-list">
             {tools.length === 0 && <p className="placeholder">{t("noTools")}</p>}
             {tools.map(tool => <ToolCard key={tool.id} tool={tool} t={t} />)}
@@ -453,6 +536,83 @@ export default function App() {
             <div className="modal-actions">
               <button onClick={() => void answerConfirmation(false)}>{t("deny")}</button>
               <button className="primary" onClick={() => void answerConfirmation(true)}>{t("allow")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && settingsDraft && (
+        <div className="modal-backdrop">
+          <div className="modal settings-modal">
+            <div className="modal-scroll">
+              <h2>{t("settingsTitle")}</h2>
+              <label className="settings-field">
+                <span>{t("apiKey")}</span>
+                <input
+                  type="password"
+                  value={settingsDraft.apiKey}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, apiKey: event.target.value })}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("modelLabel")}</span>
+                <input
+                  value={settingsDraft.model}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, model: event.target.value })}
+                  placeholder="claude-opus-4-8"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("baseURL")}</span>
+                <input
+                  value={settingsDraft.baseURL}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, baseURL: event.target.value })}
+                  placeholder="https://api.anthropic.com"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("maxTurns")}</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={settingsDraft.maxTurns}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, maxTurns: event.target.value })}
+                  placeholder="20"
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("effort")}</span>
+                <select
+                  className="settings-select"
+                  value={settingsDraft.effort}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, effort: event.target.value })}
+                >
+                  <option value="auto">auto</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="max">max</option>
+                </select>
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.webEnabled}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, webEnabled: event.target.checked })}
+                />
+                <span>{t("webToggle")}</span>
+              </label>
+              {settingsError && <p className="settings-error">{settingsError}</p>}
+              {settingsPath && <p className="settings-path">{t("configFile")}: {settingsPath}</p>}
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setSettingsOpen(false)}>{t("cancel")}</button>
+              <button className="primary" onClick={() => void saveSettings()}>{t("save")}</button>
             </div>
           </div>
         </div>
@@ -526,6 +686,32 @@ function handleMarkdownLinkClick(event: React.MouseEvent<HTMLAnchorElement>, hre
   if (!href) return;
   event.preventDefault();
   void window.hancode.openExternal(href);
+}
+
+function FolderIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M1.5 3.75c0-.69.56-1.25 1.25-1.25h3.03l1.5 2h6.47c.69 0 1.25.56 1.25 1.25v6.5c0 .69-.56 1.25-1.25 1.25h-11A1.25 1.25 0 0 1 1.5 12.25v-8.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ExternalIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M6.5 3H3.75C2.78 3 2 3.78 2 4.75v7.5c0 .97.78 1.75 1.75 1.75h7.5c.97 0 1.75-.78 1.75-1.75V9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M9.5 2.5H14V7M13.75 2.75 8 8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function ToolCard({ tool, t }: { tool: ToolItem; t: (key: keyof typeof dictionary.en) => string }) {

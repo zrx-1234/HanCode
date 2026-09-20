@@ -97,6 +97,14 @@ function registerIpc(): void {
     await sidecar.setPermissionMode(mode);
   });
 
+  ipcMain.handle("config:get", async () => {
+    return await sidecar.getConfig();
+  });
+
+  ipcMain.handle("config:update", async (_event, config: Record<string, unknown>) => {
+    return await sidecar.updateConfig(config);
+  });
+
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only http/https links can be opened.");

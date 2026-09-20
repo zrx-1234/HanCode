@@ -10,6 +10,8 @@ export type HanCodeDesktopApi = {
   respondConfirmation(confirmationId: string, allowed: boolean): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   openExternal(url: string): Promise<void>;
+  getConfig(): Promise<{ path: string; config: Record<string, unknown> }>;
+  updateConfig(config: Record<string, unknown>): Promise<{ path: string; workspace?: unknown }>;
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
 };
 
@@ -22,6 +24,8 @@ const api: HanCodeDesktopApi = {
   respondConfirmation: (confirmationId, allowed) => ipcRenderer.invoke("confirmation:respond", confirmationId, allowed),
   setPermissionMode: mode => ipcRenderer.invoke("permission:setMode", mode),
   openExternal: url => ipcRenderer.invoke("shell:openExternal", url),
+  getConfig: () => ipcRenderer.invoke("config:get"),
+  updateConfig: config => ipcRenderer.invoke("config:update", config),
   onAgentEvent(callback) {
     const listener = (_event: Electron.IpcRendererEvent, agentEvent: AgentEvent) => callback(agentEvent);
     ipcRenderer.on("agent:event", listener);

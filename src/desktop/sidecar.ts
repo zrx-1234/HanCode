@@ -5,7 +5,7 @@ import { buildSystemPrompt } from "../agent/prompt";
 import { runAgent } from "../agent/loop";
 import { createAgentSession } from "../agent/types";
 import type { AgentEvent, AgentSession, ConfirmationRequest, PermissionMode } from "../agent/types";
-import { loadConfig } from "../config";
+import { getConfigPath, loadConfig, readRawConfig, writeConfig } from "../config";
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -15,6 +15,8 @@ type SidecarCommand =
   | { id: string; type: "task.stop"; taskId: string }
   | { id: string; type: "confirmation.respond"; confirmationId: string; allowed: boolean }
   | { id: string; type: "permission.setMode"; mode: PermissionMode }
+  | { id: string; type: "config.get" }
+  | { id: string; type: "config.update"; config: Record<string, unknown> }
   | { id: string; type: "shutdown" };
 
 type WorkspaceState = {
@@ -57,14 +59,7 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
           session: createAgentSession(),
           permissionMode: pendingPermissionMode,
         };
-        sendResponse(command.id, true, {
-          workspaceRoot: config.workspaceRoot,
-          model: config.model,
-          baseURL: config.baseURL,
-          effort: config.effort,
-          maxTurns: config.maxTurns,
-          webEnabled: config.web.enabled,
-        });
+        sendResponse(command.id, true, workspaceInfo(workspace));
         return;
       }
       case "task.start": {
@@ -102,6 +97,24 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
         sendResponse(command.id, true, { mode: command.mode });
         return;
       }
+      case "config.get": {
+        sendResponse(command.id, true, { path: getConfigPath(), config: readRawConfig() });
+        return;
+      }
+      case "config.update": {
+        writeConfig(command.config);
+        // Reload the open workspace (if any) so new apiKey/model/baseURL/web
+        // settings apply to subsequent tasks without an app restart. The
+        // conversation session is kept so multi-turn context survives.
+        if (workspace) {
+          workspace.config = loadConfig(workspace.config.workspaceRoot);
+        }
+        sendResponse(command.id, true, {
+          path: getConfigPath(),
+          workspace: workspace ? workspaceInfo(workspace) : undefined,
+        });
+        return;
+      }
       case "shutdown": {
         activeTask?.controller.abort();
         resolveAllConfirmations(false);
@@ -112,6 +125,18 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
   } catch (error) {
     sendResponse(command.id, false, undefined, errorToMessage(error));
   }
+}
+
+function workspaceInfo(state: WorkspaceState) {
+  const { config } = state;
+  return {
+    workspaceRoot: config.workspaceRoot,
+    model: config.model,
+    baseURL: config.baseURL,
+    effort: config.effort,
+    maxTurns: config.maxTurns,
+    webEnabled: config.web.enabled,
+  };
 }
 
 async function runTask(taskId: string, prompt: string, controller: AbortController): Promise<void> {

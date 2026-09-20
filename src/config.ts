@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,12 +96,42 @@ export function resolveWorkspaceRoot(workspacePath: string): string {
   return real;
 }
 
+/** Path of `hancode.config.json` (see getAppRoot for how the directory is chosen). */
+export function getConfigPath(): string {
+  return join(getAppRoot(), "hancode.config.json");
+}
+
+/**
+ * Returns the raw config file contents (or `{}` when missing) so the desktop
+ * UI can present and edit them. Unknown fields are preserved through
+ * writeConfig.
+ */
+export function readRawConfig(): Record<string, unknown> {
+  const path = getConfigPath();
+  if (!existsSync(path)) return {};
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+/**
+ * Writes the config file after validating it. `value` is the full config
+ * object as edited by the user: unknown fields pass through untouched, known
+ * fields are validated by the same parser loadConfig uses.
+ */
+export function writeConfig(value: Record<string, unknown>): void {
+  validateConfigFile(value as ConfigFile);
+  writeFileSync(getConfigPath(), `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 function readConfigFile(): ConfigFile {
-  const path = join(getAppRoot(), "hancode.config.json");
+  const path = getConfigPath();
   if (!existsSync(path)) return {};
 
-  const raw = readFileSync(path, "utf8");
-  const parsed = JSON.parse(raw) as ConfigFile;
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as ConfigFile;
+  validateConfigFile(parsed);
+  return parsed;
+}
+
+function validateConfigFile(parsed: ConfigFile): void {
   if (parsed.maxTurns !== undefined && (!Number.isInteger(parsed.maxTurns) || parsed.maxTurns <= 0)) {
     throw new Error("hancode.config.json: maxTurns must be a positive integer.");
   }
@@ -115,7 +145,6 @@ function readConfigFile(): ConfigFile {
   validatePositiveInteger(parsed.web?.fetch?.cacheTtlMs, "web.fetch.cacheTtlMs");
   if (parsed.web?.search?.adapter !== undefined) parseWebSearchAdapter(parsed.web.search.adapter);
   if (parsed.web?.fetch?.adapter !== undefined) parseWebFetchAdapter(parsed.web.fetch.adapter);
-  return parsed;
 }
 
 function parseEffort(value: string | undefined): EffortConfig {

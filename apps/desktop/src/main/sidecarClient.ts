@@ -55,6 +55,14 @@ export class SidecarClient {
     return await this.request({ type: "permission.setMode", mode });
   }
 
+  async getConfig(): Promise<unknown> {
+    return await this.request({ type: "config.get" });
+  }
+
+  async updateConfig(config: Record<string, unknown>): Promise<unknown> {
+    return await this.request({ type: "config.update", config });
+  }
+
   dispose(): void {
     this.child?.kill();
     this.child = undefined;
