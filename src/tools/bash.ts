@@ -4,12 +4,13 @@ import { decideShellCommand } from "../security/shellPolicy";
 import { limitOutput } from "../security/outputLimit";
 import { applyPermissionMode } from "../security/permissionMode";
 import { bashInput } from "./schemas";
-import { interpretExit, persistLargeOutput } from "./runCommand";
+import { interpretExit, killProcessTree, persistLargeOutput } from "./runCommand";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 
 type SpawnedCommand = {
+  pid: number;
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
@@ -122,15 +123,51 @@ export const bashTool: HanCodeTool = {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      proc.kill();
+      killProcessTree(proc);
     }, timeoutMs);
 
+    // Stop the command as soon as the run is cancelled (Stop button): kill the
+    // process tree and stop waiting for output instead of blocking until the
+    // (possibly orphaned) pipes close.
+    let aborted = false;
+    let notifyStopped: () => void = () => {};
+    const stopped = new Promise<void>(resolve => {
+      notifyStopped = resolve;
+    });
+    const onAbort = () => {
+      aborted = true;
+      killProcessTree(proc);
+      notifyStopped();
+    };
+    if (ctx.signal.aborted) onAbort();
+    else ctx.signal.addEventListener("abort", onAbort);
+
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([
+      const collected = Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
         proc.exited,
       ]);
+      await Promise.race([collected, stopped]);
+
+      if (aborted) {
+        const durationMs = Date.now() - started;
+        await ctx.audit.log({
+          time: new Date(started).toISOString(),
+          command: "bash",
+          args: ["-lc", commandText],
+          commandText,
+          cwd: ctx.workspaceRoot,
+          decision: decision.action,
+          reason: decision.reason,
+          warning: decision.warning,
+          exitCode: null,
+          durationMs,
+          aborted: true,
+        });
+        return { content: `Command stopped by user: ${commandText}`, isError: true };
+      }
+      const [stdout, stderr, exitCode] = await collected;
       const durationMs = Date.now() - started;
       const interpretation = interpretExit("bash", ["-lc", commandText], exitCode);
       const output = formatCommandOutput(commandText, exitCode, timedOut, stdout, stderr, interpretation.note);
@@ -159,6 +196,7 @@ export const bashTool: HanCodeTool = {
       return { content, isError: timedOut || interpretation.isError };
     } finally {
       clearTimeout(timer);
+      ctx.signal.removeEventListener("abort", onAbort);
     }
   },
 };

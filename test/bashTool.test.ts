@@ -70,4 +70,24 @@ describe("bashTool", () => {
     expect(confirmations).toHaveLength(1);
     expect(confirmations[0].message).toContain("Unknown bash command requires confirmation");
   });
+
+  test("kills the running process when the run is aborted", async () => {
+    const controller = new AbortController();
+    const { ctx, entries } = await createContext({
+      confirm: async () => true,
+      signal: controller.signal,
+    });
+
+    // `exec` makes bash replace itself with sleep, so a single kill terminates
+    // the command and the pipe closes instead of leaving an orphaned child.
+    const promise = bashTool.execute({ command: "exec sleep 30" }, ctx);
+    await Bun.sleep(500);
+    controller.abort();
+    const result = await promise;
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Command stopped by user: exec sleep 30");
+    expect(entries[0].aborted).toBe(true);
+    expect(entries[0].exitCode).toBeNull();
+  });
 });

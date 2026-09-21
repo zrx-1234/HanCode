@@ -265,6 +265,14 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       // 2h. Execute each requested tool, collecting the results.
       const toolResults: ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
+        // Cancelled mid-loop: do not start any further tools. Every remaining
+        // tool_use still needs a paired tool_result, otherwise the next task in
+        // this session fails Anthropic API validation (unanswered tool_use).
+        if (signal.aborted) {
+          toolResults.push(skippedToolResult(toolUse.id));
+          continue;
+        }
+
         const signature = toolCallSignature(toolUse);
 
         // Check how many times this exact call appeared in the recent window.
@@ -338,6 +346,16 @@ function preview(content: string, maxLength = 4_000): string {
 
 function toolCallSignature(toolUse: ToolUseBlock): string {
   return `${toolUse.name}:${stableStringify(toolUse.input)}`;
+}
+
+/** Synthetic result for a tool_use that never ran because the user stopped the run. */
+function skippedToolResult(toolUseId: string): ToolResultBlockParam {
+  return {
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: "Tool execution skipped: the run was stopped by the user.",
+    is_error: true,
+  };
 }
 
 function rememberToolCall(recentToolCallSignatures: string[], signature: string): void {

@@ -10,6 +10,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 
 type SpawnedCommand = {
+  pid: number;
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
@@ -107,15 +108,50 @@ export const runCommandTool: HanCodeTool = {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      proc.kill();
+      killProcessTree(proc);
     }, timeoutMs);
 
+    // Stop the command as soon as the run is cancelled (Stop button): kill the
+    // process tree and stop waiting for output instead of blocking until the
+    // (possibly orphaned) pipes close.
+    let aborted = false;
+    let notifyStopped: () => void = () => {};
+    const stopped = new Promise<void>(resolve => {
+      notifyStopped = resolve;
+    });
+    const onAbort = () => {
+      aborted = true;
+      killProcessTree(proc);
+      notifyStopped();
+    };
+    if (ctx.signal.aborted) onAbort();
+    else ctx.signal.addEventListener("abort", onAbort);
+
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([
+      const collected = Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
         proc.exited,
       ]);
+      await Promise.race([collected, stopped]);
+
+      if (aborted) {
+        const durationMs = Date.now() - started;
+        await ctx.audit.log({
+          time: new Date(started).toISOString(),
+          command,
+          args,
+          cwd: ctx.workspaceRoot,
+          decision: decision.action,
+          reason: decision.reason,
+          warning: decision.warning,
+          exitCode: null,
+          durationMs,
+          aborted: true,
+        });
+        return { content: `Command stopped by user: ${commandLine.join(" ")}`, isError: true };
+      }
+      const [stdout, stderr, exitCode] = await collected;
       const durationMs = Date.now() - started;
       const interpretation = interpretExit(command, args, exitCode);
       const output = formatCommandOutput(commandLine, exitCode, timedOut, stdout, stderr, interpretation.note);
@@ -142,6 +178,7 @@ export const runCommandTool: HanCodeTool = {
       return { content, isError: timedOut || interpretation.isError };
     } finally {
       clearTimeout(timer);
+      ctx.signal.removeEventListener("abort", onAbort);
     }
   },
 };
@@ -152,6 +189,24 @@ export function interpretExit(command: string, args: string[], exitCode: number)
     return { isError: false, note: "git diff --quiet returned 1 because differences were found." };
   }
   return { isError: exitCode !== 0 };
+}
+
+/**
+ * Terminate a spawned command together with its whole process tree. On
+ * Windows `proc.kill()` only terminates the direct child — grandchildren
+ * (e.g. bash spawning the real command) survive and keep the stdout/stderr
+ * pipes open, which would block output reads until they exit on their own.
+ */
+export function killProcessTree(proc: { pid: number; kill(): void }): void {
+  if (process.platform === "win32") {
+    Bun.spawn(["taskkill", "/PID", String(proc.pid), "/T", "/F"], {
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    return;
+  }
+  proc.kill();
 }
 
 function formatDecisionMessage(reason: string, warning?: string, modelReason?: string): string {

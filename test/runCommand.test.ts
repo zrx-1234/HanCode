@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandAuditEntry, ConfirmationRequest, ToolContext } from "../src/agent/types";
@@ -66,6 +66,26 @@ describe("runCommandTool", () => {
 
     expect(confirmations[0].message).toContain("Warning:");
     expect(confirmations[0].message).toContain("recursively");
+  });
+
+  test("kills the running process when the run is aborted", async () => {
+    const controller = new AbortController();
+    const { ctx, entries } = await createContext({
+      confirm: async () => true,
+      signal: controller.signal,
+    });
+    // A single bun process that blocks for 30s; killing it terminates the run.
+    await writeFile(join(ctx.workspaceRoot, "slow.ts"), "await new Promise((resolve) => setTimeout(resolve, 30_000));\n", "utf8");
+
+    const promise = runCommandTool.execute({ command: "bun", args: ["slow.ts"] }, ctx);
+    await Bun.sleep(500);
+    controller.abort();
+    const result = await promise;
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Command stopped by user: bun slow.ts");
+    expect(entries[0].aborted).toBe(true);
+    expect(entries[0].exitCode).toBeNull();
   });
 
   test("interprets git diff --quiet exit code 1 as differences", () => {

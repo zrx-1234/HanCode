@@ -59,6 +59,7 @@ export type CommandAuditEntry = {
   exitCode?: number | null;
   durationMs?: number;
   timedOut?: boolean;
+  aborted?: boolean;
   stdoutBytes?: number;
   stderrBytes?: number;
   outputPath?: string;

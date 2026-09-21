@@ -191,7 +191,7 @@ bun run desktop:dev
 bun run desktop:build
 ```
 
-Desktop 模式下通过 GUI 选择工作区、输入任务，Agent 在后台 Sidecar 进程中运行，结果实时展示在界面中。
+Desktop 模式下通过 GUI 选择工作区、输入任务，Agent 在后台 Sidecar 进程中运行，结果实时展示在界面中。任务运行中随时可点 **Stop** 停止：模型输出立即中断，正在执行的 `bash` / `run_command` 子进程连同其进程树一并终止，未执行的工具会被跳过（会话历史保持有效，可直接开启下一个任务）。
 
 ### 打包 Windows 安装程序（exe）
 

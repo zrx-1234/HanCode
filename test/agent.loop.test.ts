@@ -188,6 +188,55 @@ describe("agent loop end-to-end", () => {
     expect(events.some((e) => e.type === "run.stopped")).toBe(true);
   });
 
+  test("aborts between tool calls and keeps the session history valid", async () => {
+    mockStreamConfigs = [
+      {
+        toolUses: [
+          { id: "tool_1", name: "list_files", input: { pattern: "*.txt" } },
+          { id: "tool_2", name: "list_files", input: { pattern: "*.md" } },
+          { id: "tool_3", name: "list_files", input: { pattern: "*.json" } },
+        ],
+      },
+    ];
+
+    const controller = new AbortController();
+    const session = { messages: [] as any[], readState: new Map(), usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } };
+    const events: AgentEvent[] = [];
+    const opts = await createOptions({
+      signal: controller.signal,
+      session,
+      emit: mock(async (event: AgentEvent) => {
+        events.push(event);
+        // Abort as soon as the first tool starts; the other two must be skipped.
+        if (event.type === "tool.started" && event.toolUseId === "tool_1") controller.abort();
+      }),
+    });
+
+    await runAgent(opts);
+
+    // Only the first tool actually started; tool_2/tool_3 were never executed.
+    const startedIds = events.filter((e) => e.type === "tool.started").map((e) => (e as any).toolUseId);
+    expect(startedIds).toEqual(["tool_1"]);
+    expect(events.some((e) => e.type === "run.stopped")).toBe(true);
+    // No second API request: the run stopped before the next turn could stream.
+    expect(streamCallIndex).toBe(1);
+
+    // History stays valid for the next task in this session: every tool_use
+    // from the assistant message has a paired tool_result in the next message.
+    const assistant = session.messages.find((m: any) => m.role === "assistant")!;
+    const toolUseIds = assistant.content.filter((b: any) => b.type === "tool_use").map((b: any) => b.id);
+    const toolResultIds = session.messages
+      .filter((m: any) => m.role === "user" && Array.isArray(m.content))
+      .flatMap((m: any) => m.content.filter((b: any) => b.type === "tool_result").map((b: any) => b.tool_use_id));
+    expect(toolResultIds.sort()).toEqual([...toolUseIds].sort());
+
+    // The skipped tools report that they never ran.
+    const skipped = session.messages
+      .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+      .filter((b: any) => b.type === "tool_result" && b.is_error && typeof b.content === "string" && b.content.includes("stopped by the user"));
+    expect(skipped.map((b: any) => b.tool_use_id).sort()).toEqual(["tool_2", "tool_3"]);
+  });
+
   test("rejects repeated identical tool calls", async () => {
     mockStreamConfigs = [
       {
