@@ -47,6 +47,10 @@ export class SidecarClient {
     return await this.request({ type: "task.stop", taskId });
   }
 
+  async clearSession(): Promise<unknown> {
+    return await this.request({ type: "session.clear" });
+  }
+
   async respondConfirmation(confirmationId: string, allowed: boolean): Promise<unknown> {
     return await this.request({ type: "confirmation.respond", confirmationId, allowed });
   }

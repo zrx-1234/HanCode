@@ -6,6 +6,7 @@ import { runAgent } from "../agent/loop";
 import { createAgentSession } from "../agent/types";
 import type { AgentEvent, AgentSession, ConfirmationRequest, PermissionMode } from "../agent/types";
 import { getConfigPath, loadConfig, readRawConfig, writeConfig } from "../config";
+import { clearSessionHistory, loadSessionHistory, saveSessionHistory } from "../sessionHistory";
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -13,6 +14,7 @@ type SidecarCommand =
   | { id: string; type: "workspace.open"; workspacePath: string }
   | { id: string; type: "task.start"; taskId: string; prompt: string }
   | { id: string; type: "task.stop"; taskId: string }
+  | { id: string; type: "session.clear" }
   | { id: string; type: "confirmation.respond"; confirmationId: string; allowed: boolean }
   | { id: string; type: "permission.setMode"; mode: PermissionMode }
   | { id: string; type: "config.get" }
@@ -53,10 +55,13 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
     switch (command.type) {
       case "workspace.open": {
         const config = loadConfig(command.workspacePath);
+        const session = createAgentSession();
+        // Restore the persisted conversation so context survives app restarts.
+        session.messages.push(...loadSessionHistory(config.workspaceRoot));
         workspace = {
           config,
           system: buildSystemPrompt(config.workspaceRoot),
-          session: createAgentSession(),
+          session,
           permissionMode: pendingPermissionMode,
         };
         sendResponse(command.id, true, workspaceInfo(workspace));
@@ -81,6 +86,14 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
           activeTask = undefined;
         }
         sendResponse(command.id, true);
+        return;
+      }
+      case "session.clear": {
+        if (!workspace) throw new Error("Open a workspace before clearing the session.");
+        if (activeTask) throw new Error("Stop the running task before starting a new conversation.");
+        workspace.session = createAgentSession();
+        clearSessionHistory(workspace.config.workspaceRoot);
+        sendResponse(command.id, true, workspaceInfo(workspace));
         return;
       }
       case "confirmation.respond": {
@@ -136,6 +149,9 @@ function workspaceInfo(state: WorkspaceState) {
     effort: config.effort,
     maxTurns: config.maxTurns,
     webEnabled: config.web.enabled,
+    // Sanitized conversation replayed as context for the next task; the UI
+    // also renders it as message bubbles.
+    history: state.session.messages,
   };
 }
 
@@ -173,6 +189,9 @@ async function runTask(taskId: string, prompt: string, controller: AbortControll
   } finally {
     if (activeTask?.taskId === taskId) activeTask = undefined;
     resolveAllConfirmations(false);
+    // Persist the conversation (context + display) after every task end,
+    // whether it completed, stopped, or errored.
+    saveSessionHistory(current.config.workspaceRoot, current.session.messages);
   }
 }
 

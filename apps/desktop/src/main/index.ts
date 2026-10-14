@@ -93,6 +93,10 @@ function registerIpc(): void {
     await sidecar.stopTask(taskId);
   });
 
+  ipcMain.handle("session:clear", async () => {
+    return await sidecar.clearSession();
+  });
+
   ipcMain.handle("permission:setMode", async (_event, mode: string) => {
     await sidecar.setPermissionMode(mode);
   });

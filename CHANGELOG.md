@@ -5,6 +5,16 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **历史对话持久化**：CLI 与 Desktop 模式按工作区把对话记录保存到
+  `<工作区>/.hancode/conversation.jsonl`（JSONL，每行一条 API 格式消息），
+  重启后自动恢复最近 200 条作为上下文，并在界面/终端中重新显示；
+  恢复时会截掉末尾未配对 `tool_use` 等不完整片段，保证上下文始终是合法 API 历史。
+  CLI 输入 `new`、Desktop 点 **新对话 / New Chat** 按钮即可清空重新开始。
+
 ## [1.0.0] - 2026-07-15
 
 首个稳定版本。在 MVP 基础上补齐 Bash 工具、联网能力、桌面端与权限模式，并完善测试与文档。

@@ -7,6 +7,7 @@ export type HanCodeDesktopApi = {
   showWorkspaceInFolder(path: string): Promise<void>;
   startTask(prompt: string): Promise<{ taskId: string }>;
   stopTask(taskId: string): Promise<void>;
+  clearSession(): Promise<unknown>;
   respondConfirmation(confirmationId: string, allowed: boolean): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   openExternal(url: string): Promise<void>;
@@ -21,6 +22,7 @@ const api: HanCodeDesktopApi = {
   showWorkspaceInFolder: path => ipcRenderer.invoke("workspace:show-in-folder", path),
   startTask: prompt => ipcRenderer.invoke("task:start", prompt),
   stopTask: taskId => ipcRenderer.invoke("task:stop", taskId),
+  clearSession: () => ipcRenderer.invoke("session:clear"),
   respondConfirmation: (confirmationId, allowed) => ipcRenderer.invoke("confirmation:respond", confirmationId, allowed),
   setPermissionMode: mode => ipcRenderer.invoke("permission:setMode", mode),
   openExternal: url => ipcRenderer.invoke("shell:openExternal", url),

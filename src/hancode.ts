@@ -7,6 +7,7 @@ import { createTerminalEventSink } from "./agent/render";
 import { createAgentSession } from "./agent/types";
 import type { AgentSession, ConfirmationRequest } from "./agent/types";
 import { loadConfig } from "./config";
+import { clearSessionHistory, loadSessionHistory, saveSessionHistory } from "./sessionHistory";
 import { createTerminalConfirmation } from "./security/confirmation";
 
 async function main(): Promise<void> {
@@ -20,6 +21,13 @@ async function main(): Promise<void> {
     const session = createAgentSession();
     const confirm = createTerminalConfirmation(query => rl.question(query));
 
+    // Restore the persisted conversation so context survives restarts.
+    const history = loadSessionHistory(config.workspaceRoot);
+    if (history.length > 0) {
+      session.messages.push(...history);
+      console.log(`HanCode restored ${history.length} messages from .hancode/conversation.jsonl (type new to start over).`);
+    }
+
     console.log(`HanCode workspace: ${config.workspaceRoot}`);
     console.log(`HanCode model: ${config.model}`);
     console.log(`HanCode effort: ${config.effort}`);
@@ -32,6 +40,12 @@ async function main(): Promise<void> {
       const input = (await rl.question("HanCode > ")).trim();
       if (!input) continue;
       if (input === "exit" || input === "quit") break;
+      if (input === "new") {
+        session.messages.length = 0;
+        clearSessionHistory(config.workspaceRoot);
+        console.log("Started a new conversation.");
+        continue;
+      }
       await runOnce(input, config, system, session, confirm);
     }
   } finally {
@@ -75,6 +89,9 @@ async function runOnce(
     } else {
       console.error(String(error));
     }
+  } finally {
+    // Persist the conversation after every task end (completed or failed).
+    saveSessionHistory(config.workspaceRoot, session.messages);
   }
 }
 

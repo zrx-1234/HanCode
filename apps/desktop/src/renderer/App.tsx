@@ -39,6 +39,13 @@ type WorkspaceInfo = {
   effort?: string;
   maxTurns?: number;
   webEnabled?: boolean;
+  /** Persisted conversation restored from .hancode/conversation.jsonl (API message format). */
+  history?: HistoryMessage[];
+};
+
+type HistoryMessage = {
+  role: "user" | "assistant";
+  content: string | Array<Record<string, unknown>>;
 };
 
 type Locale = "zh" | "en";
@@ -64,6 +71,32 @@ const emptyUsage: UsageTotals = {
   cacheReadInputTokens: 0,
 };
 
+/**
+ * Convert restored API-format history into display bubbles. Tool plumbing
+ * (tool_result user messages, system reminders) is skipped — only the actual
+ * conversation text is shown.
+ */
+function historyToMessages(history: HistoryMessage[] | undefined): ConversationMessage[] {
+  if (!history) return [];
+  const out: ConversationMessage[] = [];
+  for (const [index, message] of history.entries()) {
+    if (message.role === "user") {
+      const text = typeof message.content === "string"
+        ? message.content
+        : message.content.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
+      if (!text || text.startsWith("[HanCode system reminder]")) continue;
+      out.push({ id: `history-${index}`, taskId: "history", role: "user", text });
+    } else {
+      const blocks = Array.isArray(message.content) ? message.content : [];
+      const text = blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
+      const thinking = blocks.filter(block => block.type === "thinking").map(block => String(block.thinking ?? "")).join("");
+      if (!text && !thinking) continue;
+      out.push({ id: `history-${index}`, taskId: "history", role: "assistant", text, thinking, thinkingOpen: false, status: "done" });
+    }
+  }
+  return out;
+}
+
 const dictionary = {
   zh: {
     selectWorkspace: "请选择工作区开始",
@@ -78,6 +111,7 @@ const dictionary = {
     askPlaceholder: "让 HanCode 处理这个项目…（Enter 发送，Shift+Enter 换行）",
     run: "运行",
     stop: "停止",
+    newChat: "新对话",
     tools: "工具",
     noTools: "暂无工具调用。",
     subAgents: "子 Agent",
@@ -126,6 +160,7 @@ const dictionary = {
     askPlaceholder: "Ask HanCode to work on this project… (Enter to send, Shift+Enter for newline)",
     run: "Run",
     stop: "Stop",
+    newChat: "New Chat",
     tools: "Tools",
     noTools: "No tools yet.",
     subAgents: "Sub-agents",
@@ -238,6 +273,8 @@ export default function App() {
     try {
       const info = await window.hancode.openWorkspace(path) as WorkspaceInfo;
       setWorkspaceInfo(info);
+      // Replay the persisted conversation so previous records stay visible.
+      setMessages(historyToMessages(info.history));
       await window.hancode.setPermissionMode(permissionMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -284,6 +321,23 @@ export default function App() {
     if (!taskId) return;
     setStatus("stopping");
     await window.hancode.stopTask(taskId);
+  }
+
+  async function newConversation() {
+    setError("");
+    try {
+      const info = await window.hancode.clearSession() as WorkspaceInfo;
+      setWorkspaceInfo(info);
+      setMessages([]);
+      setTools([]);
+      setSubAgents([]);
+      setTaskUsage(emptyUsage);
+      setSessionUsage(emptyUsage);
+      setTaskId(null);
+      setStatus("idle");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function answerConfirmation(allowed: boolean) {
@@ -491,6 +545,12 @@ export default function App() {
               <div className="composer-actions">
                 <button className="primary" disabled={!canRun} onClick={() => void startTask()}>{t("run")}</button>
                 <button disabled={status !== "running" || !taskId} onClick={() => void stopTask()}>{t("stop")}</button>
+                <button
+                  disabled={status === "running" || status === "stopping" || !workspaceInfo}
+                  onClick={() => void newConversation()}
+                >
+                  {t("newChat")}
+                </button>
               </div>
             </div>
           </div>
