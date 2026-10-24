@@ -811,6 +811,8 @@ This is what makes the axis meaningful: a `presentation` deck and a `text` deck 
 
 **Per-block expression**: phrase each §IX content block in the mode that fits it — prose, bullet, keyword, or any phrasing the content calls for — not a default bullet. Take the cue from the source's texture: a narrative source (article / transcript / talk) leans prose — resist compressing its argument pages into fragments; a data sheet leans bullet/keyword. Write the real sentence into §IX itself, not a skeleton point to expand later. One page mixes modes; let layout pull each (narrative → prose, structural/chart → bullets/keywords).
 
+**No pre-cut card slots**: phrasing follows the content's own texture, never an imagined layout. Do not pre-chop continuous reasoning into label-length fragments because "it will sit on cards" — page structure is the Executor's decision (executor-base.md §2.1 / §3, CHART_STYLE_GUIDE §11.3), made after reading §IX; the author must not let a structure preset cut the content in advance. If the reasoning reads as a sentence, write the sentence — the Executor's boxless alternatives hold a sentence far better than four fragments hold a paragraph.
+
 > Note: §IX is the only content copy the Executor re-reads after context compression — what you write there is what survives.
 
 ### 6.2 Outline Output Specification (Must include 11 chapters)

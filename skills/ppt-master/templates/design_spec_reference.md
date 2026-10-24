@@ -321,7 +321,7 @@ Catalog read: 76 templates
 - **Title**: [Page title]
 - **Core message**: [the one thing this page exists to land — its spine, always phrased as one assertion sentence (prose by nature). One per page; can't name it → merge or cut the page.]
 - **Visualization**: [visualization_type] (see VII. Visualization Reference List)
-- **Content**: write each block in the phrasing that fits it (prose / bullet / keyword / … any phrasing the content calls for) and write it already in that mode, so the texture itself carries the intent — a prose block reads as a real sentence, not a fragment. One page may mix modes; blocks still sit under the core message, never replace it:
+- **Content**: write each block in the phrasing that fits it (prose / bullet / keyword / … any phrasing the content calls for) and write it already in that mode, so the texture itself carries the intent — a prose block reads as a real sentence, not a fragment, and is never pre-chopped into label-length pieces for an imagined layout (strategist.md §6.1 no-pre-cut rule; page structure is the Executor's call). One page may mix modes; blocks still sit under the core message, never replace it:
   - [a connected sentence or two that argues the point]
   - [parallel fragment] · [parallel fragment] · [parallel fragment]
   - [label] / [label] / [label]
