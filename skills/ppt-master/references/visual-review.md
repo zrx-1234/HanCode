@@ -217,6 +217,7 @@ Larger K is **not** always better: subagent context fills with prior pages' SVG 
 
 - Orchestrator's **final action before going idle** must be `SendMessage(to=<lead>)` containing:
   - the aggregate Markdown table (page × status × hard_hits × soft_hits × fixes_applied × needs_human_reason)
+  - a deck-level uniformity signal: if 3+ consecutive pages share the same card-grid skeleton (same accent-bar + divider + N identical cards furniture), flag it in the table footer as `uniform_skeleton: P<NN>–P<NN>` — **report-only**. §3 Don't-touch still forbids layout restructure at review time; this surfaces for the main agent / user to regenerate the flagged pages, not for subagents to fix
   - one ≤150-word "plumbing verdict" paragraph
   - path to `brand_review.json` if any §1.1 aggregations occurred
 
