@@ -109,6 +109,14 @@ function registerIpc(): void {
     return await sidecar.updateConfig(config);
   });
 
+  // Opens the active hancode.config.json in the system's default editor.
+  ipcMain.handle("config:open-file", async () => {
+    const { path } = await sidecar.getConfig();
+    // openPath resolves with "" on success and an error description otherwise.
+    const errorMessage = await shell.openPath(path);
+    if (errorMessage) throw new Error(errorMessage);
+  });
+
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only http/https links can be opened.");

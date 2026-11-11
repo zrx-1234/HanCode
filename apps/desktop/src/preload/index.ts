@@ -13,6 +13,7 @@ export type HanCodeDesktopApi = {
   openExternal(url: string): Promise<void>;
   getConfig(): Promise<{ path: string; config: Record<string, unknown> }>;
   updateConfig(config: Record<string, unknown>): Promise<{ path: string; workspace?: unknown }>;
+  openConfigFile(): Promise<void>;
   onAgentEvent(callback: (event: AgentEvent) => void): () => void;
 };
 
@@ -28,6 +29,7 @@ const api: HanCodeDesktopApi = {
   openExternal: url => ipcRenderer.invoke("shell:openExternal", url),
   getConfig: () => ipcRenderer.invoke("config:get"),
   updateConfig: config => ipcRenderer.invoke("config:update", config),
+  openConfigFile: () => ipcRenderer.invoke("config:open-file"),
   onAgentEvent(callback) {
     const listener = (_event: Electron.IpcRendererEvent, agentEvent: AgentEvent) => callback(agentEvent);
     ipcRenderer.on("agent:event", listener);

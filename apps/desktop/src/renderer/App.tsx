@@ -149,6 +149,7 @@ const dictionary = {
     superMode: "超级模式",
     superModeWarning: "超级模式：命令将自动执行，但硬拒绝的危险命令仍会被阻止。",
     settings: "设置",
+    editConfig: "编辑配置文件",
     settingsTitle: "模型与运行配置",
     configFile: "配置文件",
     apiKey: "API Key",
@@ -202,6 +203,7 @@ const dictionary = {
     superMode: "Super mode",
     superModeWarning: "Super mode: commands run automatically, but hard-refused dangerous commands are still blocked.",
     settings: "Settings",
+    editConfig: "Edit config file",
     settingsTitle: "Model & runtime settings",
     configFile: "Config file",
     apiKey: "API Key",
@@ -317,6 +319,15 @@ export default function App() {
     setError("");
     try {
       await window.hancode.showWorkspaceInFolder(path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function openConfigFile() {
+    setError("");
+    try {
+      await window.hancode.openConfigFile();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -597,6 +608,14 @@ export default function App() {
         >
           <GearIcon />
         </button>
+        <button
+          className="icon-button"
+          onClick={() => void openConfigFile()}
+          title={t("editConfig")}
+          aria-label={t("editConfig")}
+        >
+          <ConfigIcon />
+        </button>
       </header>
 
       {permissionMode === "super" && <section className="warning-banner"><span className="warning-icon" aria-hidden="true">⚠</span>{t("superModeWarning")}</section>}
@@ -867,6 +886,16 @@ function GearIcon() {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4" />
       <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ConfigIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M4 1.5h5.2L13.5 5.8V13a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V3A1.5 1.5 0 0 1 4 1.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M9 1.7V6h4.3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M5.5 8.5h5M5.5 11h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }
