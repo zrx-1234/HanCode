@@ -100,6 +100,7 @@ bun install
   "baseURL": "https://api.anthropic.com",
   "maxTurns": 20,
   "effort": "auto",
+  "thinkingMode": "auto",
   "compactionThresholdTokens": 100000,
   "web": {
     "enabled": false,
@@ -128,6 +129,23 @@ bun install
 以后修改模型、API Key、代理 / 中转地址或思考深度时，只改这个配置文件，不需要在终端设置环境变量。
 
 `effort` 控制 Claude 的推理/输出努力程度，可选值为 `auto`、`low`、`medium`、`high`、`xhigh`、`max`。默认 `auto` 表示不显式传 `output_config.effort`，由模型/API 使用自动或默认深度；其他值会作为 `output_config.effort` 传入请求。
+
+`thinkingMode` 控制请求中 `thinking` 参数使用的语法，可选值为 `auto`、`adaptive`、`budget`，默认 `auto`：
+
+- `adaptive` 语法（`thinking: {type: "adaptive"}`）是 Anthropic 官方 4.6+ 模型的新写法，只有官方 API 认识；部分第三方 Anthropic 兼容网关（如火山方舟 `/api/coding` 端点）收到会直接返回 `400 InvalidParameter`。
+- `auto` 模式按 `baseURL` 自动判定：host 为 `api.anthropic.com`（或未配置 baseURL）时发送 `adaptive`，指向其他网关时发送老语法 `{type: "enabled", budget_tokens}`。
+- `budget` 模式强制使用老语法，`budget_tokens` 由 `effort` 映射而来，并在请求中带 `display: "summarized"` 以流式输出思考摘要：
+
+| effort | budget_tokens |
+|---|---|
+| auto（默认） | 16384 |
+| low | 4096 |
+| medium | 8192 |
+| high | 16384 |
+| xhigh | 32768 |
+| max | 48000 |
+
+使用第三方兼容网关（火山方舟、各类中转）遇到 `400 InvalidParameter` 时，保持默认 `auto` 即可；也可显式设为 `budget`。
 
 `web.enabled` 默认关闭。开启后会向模型暴露 `web_search` 和 `web_fetch`：
 

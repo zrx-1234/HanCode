@@ -7,6 +7,8 @@ import { executeTool, getAllToolNames, getToolDefinitions } from "../tools/index
 import { getSkillRegistry } from "../skills/registry";
 import { buildCompactionMessages, compactedContextMessage, DEFAULT_COMPACTION_THRESHOLD_TOKENS, estimateContextTokens, planCompaction } from "./compaction";
 import { addUsage, createUsageTotals, mergeUsage } from "./usage";
+import { buildThinkingParam } from "./thinking";
+import type { ThinkingMode } from "./thinking";
 import { createAgentSession } from "./types";
 import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, UsageTotals } from "./types";
 
@@ -22,6 +24,8 @@ export type RunAgentOptions = {
   baseURL: string;
   maxTurns: number;
   effort: EffortConfig;
+  /** Selection of the `thinking` parameter syntax; defaults to "auto" (endpoint-based). */
+  thinkingMode?: ThinkingMode;
   web: WebConfig;
   system: string;
   taskId?: string;
@@ -165,6 +169,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         baseURL: options.baseURL,
         maxTurns: config.max_turns ?? options.maxTurns,
         effort: config.effort ?? options.effort,
+        thinkingMode: options.thinkingMode,
         compactionThresholdTokens: options.compactionThresholdTokens,
         web: options.web,
         system: options.system,
@@ -252,11 +257,13 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       // 2d. Let the UI know a new turn has started.
       await emit(options, { type: "turn.started", taskId, turn: turn + 1 });
 
-      // 2e. Stream the next model response from the Anthropic API.
+      // 2e. Stream the next model response from the Anthropic API. The
+      // thinking syntax depends on the endpoint: `adaptive` is only accepted
+      // by the official Anthropic API, gateways need `budget_tokens`.
       const stream = client.messages.stream({
         model: options.model,
         max_tokens: 64_000,
-        thinking: { type: "adaptive", display: "summarized" },
+        thinking: buildThinkingParam(options.baseURL, options.thinkingMode ?? "auto", options.effort),
         output_config: options.effort === "auto" ? undefined : { effort: options.effort },
         system: options.system,
         tools: getToolDefinitions(options.web, options.allowedTools),

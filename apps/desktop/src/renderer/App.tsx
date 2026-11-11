@@ -57,6 +57,7 @@ type ConfigDraft = {
   baseURL: string;
   maxTurns: string;
   effort: string;
+  thinkingMode: string;
   webEnabled: boolean;
 };
 
@@ -111,6 +112,7 @@ const dictionary = {
     openInExplorer: "在文件管理器中打开",
     model: "模型",
     effort: "深度",
+    thinkingMode: "思考模式",
     maxTurns: "最大轮次",
     web: "联网",
     enabled: "已启用",
@@ -163,6 +165,7 @@ const dictionary = {
     openInExplorer: "Open in Explorer",
     model: "Model",
     effort: "Effort",
+    thinkingMode: "Thinking",
     maxTurns: "Max turns",
     web: "Web",
     enabled: "enabled",
@@ -386,6 +389,7 @@ export default function App() {
         baseURL: typeof config.baseURL === "string" ? config.baseURL : "",
         maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
         effort: typeof config.effort === "string" ? config.effort : "auto",
+        thinkingMode: typeof config.thinkingMode === "string" ? config.thinkingMode : "auto",
         webEnabled: Boolean((config.web as { enabled?: boolean } | undefined)?.enabled),
       });
       setSettingsOpen(true);
@@ -411,6 +415,8 @@ export default function App() {
       else delete next.maxTurns;
       if (settingsDraft.effort !== "auto") next.effort = settingsDraft.effort;
       else delete next.effort;
+      if (settingsDraft.thinkingMode !== "auto") next.thinkingMode = settingsDraft.thinkingMode;
+      else delete next.thinkingMode;
       next.web = { ...(next.web as object | undefined), enabled: settingsDraft.webEnabled };
       const result = await window.hancode.updateConfig(next);
       setSettingsPath(result.path);
@@ -730,6 +736,18 @@ export default function App() {
                   <option value="high">high</option>
                   <option value="xhigh">xhigh</option>
                   <option value="max">max</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>{t("thinkingMode")}</span>
+                <select
+                  className="settings-select"
+                  value={settingsDraft.thinkingMode}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, thinkingMode: event.target.value })}
+                >
+                  <option value="auto">auto</option>
+                  <option value="adaptive">adaptive</option>
+                  <option value="budget">budget</option>
                 </select>
               </label>
               <label className="settings-check">

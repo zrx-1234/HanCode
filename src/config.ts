@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_COMPACTION_THRESHOLD_TOKENS } from "./agent/compaction";
+import type { ThinkingMode } from "./agent/thinking";
 
 export type EffortConfig = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 export type WebSearchAdapterConfig = "tavily" | "brave" | "searxng";
@@ -39,6 +40,8 @@ export type HanCodeConfig = {
   baseURL: string;
   maxTurns: number;
   effort: EffortConfig;
+  /** Selection of the `thinking` request parameter syntax; see agent/thinking.ts. */
+  thinkingMode: ThinkingMode;
   web: WebConfig;
   /** Context size (tokens) that triggers automatic compaction; 0 disables it. */
   compactionThresholdTokens: number;
@@ -50,6 +53,7 @@ type ConfigFile = {
   baseURL?: string;
   maxTurns?: number;
   effort?: string;
+  thinkingMode?: string;
   compactionThresholdTokens?: number;
   web?: WebConfigFile;
 };
@@ -89,6 +93,7 @@ export function loadConfig(workspacePath: string): HanCodeConfig {
     baseURL: configFile.baseURL || "https://api.anthropic.com",
     maxTurns: configFile.maxTurns ?? 20,
     effort: parseEffort(configFile.effort),
+    thinkingMode: parseThinkingMode(configFile.thinkingMode),
     compactionThresholdTokens: configFile.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS,
     web: parseWebConfig(configFile.web),
   };
@@ -144,6 +149,7 @@ function validateConfigFile(parsed: ConfigFile): void {
     throw new Error("hancode.config.json: compactionThresholdTokens must be a non-negative integer (0 disables compaction).");
   }
   if (parsed.effort !== undefined) parseEffort(parsed.effort);
+  if (parsed.thinkingMode !== undefined) parseThinkingMode(parsed.thinkingMode);
   validateStringArray(parsed.web?.allowedDomains, "web.allowedDomains");
   validateStringArray(parsed.web?.blockedDomains, "web.blockedDomains");
   validatePositiveInteger(parsed.web?.search?.maxResults, "web.search.maxResults");
@@ -159,6 +165,12 @@ function parseEffort(value: string | undefined): EffortConfig {
   if (value === undefined || value === "") return "auto";
   if (value === "auto" || value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max") return value;
   throw new Error("hancode.config.json: effort must be one of auto, low, medium, high, xhigh, max.");
+}
+
+function parseThinkingMode(value: string | undefined): ThinkingMode {
+  if (value === undefined || value === "") return "auto";
+  if (value === "auto" || value === "adaptive" || value === "budget") return value;
+  throw new Error("hancode.config.json: thinkingMode must be one of auto, adaptive, budget.");
 }
 
 function parseWebConfig(value: WebConfigFile | undefined): WebConfig {

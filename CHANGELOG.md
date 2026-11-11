@@ -24,6 +24,13 @@
 
 ### 修复
 
+- **第三方 Anthropic 兼容网关 400 InvalidParameter**：主循环此前固定发送
+  `thinking: {type: "adaptive"}`（官方 4.6+ 模型语法），火山方舟等兼容网关
+  不认识该写法，每个请求都被 `400 InvalidParameter` 拒绝。新增
+  `thinkingMode` 配置（`auto` / `adaptive` / `budget`，默认 `auto`）：
+  `auto` 按 `baseURL` 判定——官方 API 发 `adaptive`，其他网关改发老语法
+  `{type: "enabled", budget_tokens}`（`budget_tokens` 由 `effort` 映射，
+  4096–48000）；Desktop 设置面板同步新增「思考模式」下拉。
 - **模型流式输出非法 JSON 不再导致整个任务失败**：当模型生成的工具调用参数
   不是合法 JSON（如非法转义 `\-`、非法数字）时，SDK 的惰性解析会在读取
   `tool_use.input` 时抛出 `JSON Parse error`，此前会直接终止整个任务。

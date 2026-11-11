@@ -16,6 +16,8 @@ let mockStreamConfigs: MockStreamConfig[] = [];
 let streamCallIndex = 0;
 /** Params of every non-streaming create() call (compaction summaries). */
 let createCalls: unknown[] = [];
+/** Params of every streaming messages.stream() call. */
+let streamParams: unknown[] = [];
 
 function createMockStream(config: MockStreamConfig) {
   let textHandler: ((delta: string) => void) | undefined;
@@ -73,7 +75,8 @@ mock.module("@anthropic-ai/sdk", () => {
   return {
     default: class MockAnthropic {
       messages = {
-        stream: mock(() => {
+        stream: mock((params: unknown) => {
+          streamParams.push(params);
           const config = mockStreamConfigs[streamCallIndex++] ?? { text: "Done" };
           return createMockStream(config);
         }),
@@ -151,6 +154,7 @@ describe("agent loop end-to-end", () => {
     mockStreamConfigs = [];
     streamCallIndex = 0;
     createCalls = [];
+    streamParams = [];
   });
 
   test("single-turn conversation without tools", async () => {
@@ -366,6 +370,39 @@ describe("agent loop end-to-end", () => {
 
     expect(createCalls.length).toBe(0);
     expect((session.messages[0] as any).content).toBe("older 0");
+  });
+
+  test("sends adaptive thinking to the official Anthropic endpoint", async () => {
+    mockStreamConfigs = [{ text: "ok" }];
+    const opts = await createOptions({ baseURL: "https://api.anthropic.com" });
+    await runAgent(opts);
+
+    expect(streamParams.length).toBe(1);
+    const thinking = (streamParams[0] as any).thinking;
+    expect(thinking).toEqual({ type: "adaptive", display: "summarized" });
+  });
+
+  test("sends budget thinking to a third-party compatible gateway", async () => {
+    mockStreamConfigs = [{ text: "ok" }];
+    const opts = await createOptions({ baseURL: "https://ark.cn-beijing.volces.com/api/coding", effort: "high" });
+    await runAgent(opts);
+
+    expect(streamParams.length).toBe(1);
+    const thinking = (streamParams[0] as any).thinking;
+    expect(thinking.type).toBe("enabled");
+    expect(thinking.budget_tokens).toBeGreaterThan(0);
+    expect(thinking.budget_tokens).toBeLessThan((streamParams[0] as any).max_tokens);
+    expect(thinking.display).toBe("summarized");
+  });
+
+  test("explicit thinkingMode overrides endpoint detection", async () => {
+    mockStreamConfigs = [{ text: "ok" }];
+    const opts = await createOptions({ baseURL: "https://api.anthropic.com", thinkingMode: "budget", effort: "low" });
+    await runAgent(opts);
+
+    const thinking = (streamParams[0] as any).thinking;
+    expect(thinking.type).toBe("enabled");
+    expect(thinking.budget_tokens).toBe(4_096);
   });
 
   test("rejects repeated identical tool calls", async () => {
