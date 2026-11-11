@@ -91,7 +91,7 @@ export function loadConfig(workspacePath: string): HanCodeConfig {
     apiKey: configFile.apiKey ?? "",
     model: configFile.model || "claude-opus-4-8",
     baseURL: configFile.baseURL || "https://api.anthropic.com",
-    maxTurns: configFile.maxTurns ?? 20,
+    maxTurns: configFile.maxTurns ?? 100,
     effort: parseEffort(configFile.effort),
     thinkingMode: parseThinkingMode(configFile.thinkingMode),
     compactionThresholdTokens: configFile.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS,

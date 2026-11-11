@@ -720,7 +720,7 @@ export default function App() {
                   min={1}
                   value={settingsDraft.maxTurns}
                   onChange={event => setSettingsDraft({ ...settingsDraft, maxTurns: event.target.value })}
-                  placeholder="20"
+                  placeholder="100"
                 />
               </label>
               <label className="settings-field">

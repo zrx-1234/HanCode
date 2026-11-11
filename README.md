@@ -98,7 +98,7 @@ bun install
   "apiKey": "sk-ant-...",
   "model": "claude-opus-4-8",
   "baseURL": "https://api.anthropic.com",
-  "maxTurns": 20,
+  "maxTurns": 100,
   "effort": "auto",
   "thinkingMode": "auto",
   "compactionThresholdTokens": 100000,
