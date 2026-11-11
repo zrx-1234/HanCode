@@ -62,6 +62,7 @@ async function runOnce(
       baseURL: config.baseURL,
       maxTurns: config.maxTurns,
       effort: config.effort,
+      compactionThresholdTokens: config.compactionThresholdTokens,
       web: config.web,
       system,
       emit: eventSink,

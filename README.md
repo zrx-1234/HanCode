@@ -100,6 +100,7 @@ bun install
   "baseURL": "https://api.anthropic.com",
   "maxTurns": 20,
   "effort": "auto",
+  "compactionThresholdTokens": 100000,
   "web": {
     "enabled": false,
     "allowedDomains": [],
@@ -179,6 +180,8 @@ HanCode 后续的文件读写、搜索、编辑和命令执行都会固定在这
 
 **历史对话**：CLI 与 Desktop 模式都会把每个工作区的对话记录持久化到 `<工作区>/.hancode/conversation.jsonl`，下次启动时自动恢复最近 200 条消息作为上下文，界面/终端中也会重新显示之前的记录。CLI 中输入 `new`（Desktop 中点 **新对话 / New Chat** 按钮）可清空记录、重新开始。
 
+**上下文压缩**：当会话上下文超过阈值（按最近一次 API 响应的 token 用量估算）时，HanCode 会自动把较早的对话让模型摘要成一条「已压缩上下文」消息，替换原历史。压缩只发生在完整的对话边界上，tool_use/tool_result 配对和上下文合法性不受影响；压缩后界面/终端会显示一条分隔提示。阈值通过 `hancode.config.json` 的 `compactionThresholdTokens` 配置（默认 `100000`，设为 `0` 关闭自动压缩）。
+
 ### Desktop 模式
 
 启动 Electron 桌面应用（开发模式）：
@@ -196,6 +199,8 @@ bun run desktop:build
 Desktop 模式下通过 GUI 选择工作区、输入任务，Agent 在后台 Sidecar 进程中运行，结果实时展示在界面中。任务运行中随时可点 **Stop** 停止：模型输出立即中断，正在执行的 `bash` / `run_command` 子进程连同其进程树一并终止，未执行的工具会被跳过（会话历史保持有效，可直接开启下一个任务）。
 
 打开工作区时会自动加载该工作区保存的历史对话（见上文「历史对话」），输入框旁的 **新对话 / New Chat** 按钮可清空历史重新开始（任务运行中不可用）。
+
+长对话时，当前任务之前的消息会自动折叠为一条「历史对话」横幅，点击可展开——既保持界面清爽，也避免大量历史消息拖慢渲染；流式输出做了增量缓冲与按需渲染优化，长会话不再卡顿。
 
 ### 打包 Windows 安装程序（exe）
 

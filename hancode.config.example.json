@@ -4,6 +4,7 @@
   "baseURL": "https://api.anthropic.com",
   "maxTurns": 20,
   "effort": "auto",
+  "compactionThresholdTokens": 100000,
   "web": {
     "enabled": false,
     "allowedDomains": [],

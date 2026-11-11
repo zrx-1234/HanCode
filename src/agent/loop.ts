@@ -5,6 +5,7 @@ import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
 import { executeTool, getAllToolNames, getToolDefinitions } from "../tools/index";
 import { getSkillRegistry } from "../skills/registry";
+import { buildCompactionMessages, compactedContextMessage, DEFAULT_COMPACTION_THRESHOLD_TOKENS, estimateContextTokens, planCompaction } from "./compaction";
 import { addUsage, createUsageTotals, mergeUsage } from "./usage";
 import { createAgentSession } from "./types";
 import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, UsageTotals } from "./types";
@@ -30,6 +31,8 @@ export type RunAgentOptions = {
   emit?: AgentEventSink;
   permissionMode?: PermissionMode;
   allowedTools?: string[];
+  /** Context size (tokens) that triggers automatic compaction; 0 disables it. */
+  compactionThresholdTokens?: number;
 };
 
 /**
@@ -41,22 +44,24 @@ export type RunAgentOptions = {
  * 3. Enter a loop of at most `maxTurns` turns.
  * 4. Each turn:
  *    a. Check if the run was cancelled externally (`signal.aborted`).
- *    b. When we hit 80 % of the turn limit, inject a system reminder so the
+ *    b. Compact the context when the estimated context size passes the
+ *       configured threshold (older history → model-generated summary).
+ *    c. When we hit 80 % of the turn limit, inject a system reminder so the
  *       model knows to wrap up soon.
- *    c. Emit "turn.started" so the UI knows a new turn began.
- *    d. Stream a request to the Anthropic API, forwarding text and thinking
+ *    d. Emit "turn.started" so the UI knows a new turn began.
+ *    e. Stream a request to the Anthropic API, forwarding text and thinking
  *       deltas to the outside world in real time.
- *    e. Once the stream finishes, accumulate token usage for this run and the
+ *    f. Once the stream finishes, accumulate token usage for this run and the
  *       overall session.
- *    f. If the model refused to answer (`stop_reason === "refusal"`), end.
- *    g. If the response contains no `tool_use` blocks, the model gave a final
+ *    g. If the model refused to answer (`stop_reason === "refusal"`), end.
+ *    h. If the response contains no `tool_use` blocks, the model gave a final
  *       answer — emit "run.completed" and return.
- *    h. Otherwise execute each requested tool:
+ *    i. Otherwise execute each requested tool:
  *       - Detect repeated identical tool calls inside a sliding window and
  *         reject them to prevent loops.
  *       - Call `executeTool()` to perform the actual work.
  *       - Collect every result as a `tool_result` block.
- *    i. Push all `tool_result` blocks back into the message history as a
+ *    j. Push all `tool_result` blocks back into the message history as a
  *       single `user` message so the model can reason over them next turn.
  * 5. If the loop exhausts `maxTurns` without finishing, emit "run.max_turns".
  * 6. Error handling: cancellation emits "run.stopped"; anything else emits
@@ -95,6 +100,13 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   // Tracks whether we are currently receiving a thinking stream so we can emit
   // the "thinking.started" event exactly once per stream.
   let thinkingStarted = false;
+
+  // Context-size estimate from the last API response; drives compaction.
+  let contextEstimateTokens = 0;
+
+  // Whether compaction already rewrote the history this run (also guards the
+  // first-turn rollback below, which relies on message positions).
+  let compactedThisRun = false;
 
   // Build the context object that every tool executor receives (workspace path,
   // confirmation callback, audit logger, abort signal, etc.).
@@ -153,6 +165,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         baseURL: options.baseURL,
         maxTurns: config.max_turns ?? options.maxTurns,
         effort: config.effort ?? options.effort,
+        compactionThresholdTokens: options.compactionThresholdTokens,
         web: options.web,
         system: options.system,
         taskId: subTaskId,
@@ -193,7 +206,41 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         return;
       }
 
-      // 2b. Nudge the model to start wrapping up once we pass 80 % of the budget.
+      // 2b. Compact the context once it grows past the configured threshold.
+      const compactionThreshold = options.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS;
+      if (compactionThreshold > 0 && contextEstimateTokens >= compactionThreshold) {
+        const cut = planCompaction(messages);
+        if (cut !== undefined) {
+          const removed = messages.slice(0, cut);
+          try {
+            const summaryResponse = await client.messages.create({
+              model: options.model,
+              max_tokens: 4_000,
+              system: "You are a context compactor. Produce a dense, factual summary of the conversation you are given.",
+              messages: buildCompactionMessages(removed),
+            }, { signal });
+            const summary = summaryResponse.content
+              .filter((block): block is Extract<typeof block, { type: "text" }> => block.type === "text")
+              .map(block => block.text)
+              .join("\n")
+              .trim();
+            if (summary) {
+              messages.splice(0, cut, compactedContextMessage(summary));
+              compactedThisRun = true;
+              addUsage(runUsage, summaryResponse.usage);
+              addUsage(session.usage, summaryResponse.usage);
+              await emit(options, { type: "context.compacted", taskId, removedMessages: removed.length, keptMessages: messages.length });
+            }
+          } catch (error) {
+            // Compaction is best-effort: on failure keep the full context.
+            // An abort during the summary call must still stop the run.
+            if (signal.aborted) throw error;
+            console.error(`[hancode] context compaction failed, keeping full context: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      // 2c. Nudge the model to start wrapping up once we pass 80 % of the budget.
       if (!softLimitWarningSent && turn >= Math.floor(options.maxTurns * 0.8)) {
         messages.push({
           role: "user",
@@ -202,10 +249,10 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         softLimitWarningSent = true;
       }
 
-      // 2c. Let the UI know a new turn has started.
+      // 2d. Let the UI know a new turn has started.
       await emit(options, { type: "turn.started", taskId, turn: turn + 1 });
 
-      // 2d. Stream the next model response from the Anthropic API.
+      // 2e. Stream the next model response from the Anthropic API.
       const stream = client.messages.stream({
         model: options.model,
         max_tokens: 64_000,
@@ -239,21 +286,28 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         await emit(options, { type: "thinking.finished", taskId });
       }
 
-      // 2e. Accumulate token usage for this run and the whole session.
+      // 2f. Accumulate token usage for this run and the whole session, and
+      // refresh the context-size estimate that drives compaction.
       addUsage(runUsage, message.usage);
       addUsage(session.usage, message.usage);
+      contextEstimateTokens = estimateContextTokens({
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+        cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
+        cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
+      });
 
       // Append the assistant's full response to the conversation history.
       messages.push({ role: "assistant", content: message.content });
       await emitUsage(options, taskId, runUsage, session.usage);
 
-      // 2f. If the model refused to answer, stop the run right away.
+      // 2g. If the model refused to answer, stop the run right away.
       if (message.stop_reason === "refusal") {
         await emit(options, { type: "run.refused", taskId });
         return;
       }
 
-      // 2g. Extract every tool_use block from the model's response.
+      // 2h. Extract every tool_use block from the model's response.
       const toolUses = message.content.filter((block): block is ToolUseBlock => block.type === "tool_use");
 
       // No tools requested → the model provided a final answer.
@@ -262,7 +316,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         return;
       }
 
-      // 2h. Execute each requested tool, collecting the results.
+      // 2i. Execute each requested tool, collecting the results.
       const toolResults: ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
         // Cancelled mid-loop: do not start any further tools. Every remaining
@@ -273,7 +327,32 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
           continue;
         }
 
-        const signature = toolCallSignature(toolUse);
+        // The SDK parses streamed tool input lazily on first access of `.input`;
+        // malformed JSON emitted by the model (invalid escape, invalid number,
+        // ...) throws a raw SyntaxError here. Turn that into a recoverable
+        // per-tool error instead of killing the whole run, so the model can
+        // regenerate the tool call and continue.
+        let input: unknown;
+        try {
+          input = toolUse.input;
+        } catch (error) {
+          const content = `Tool input could not be parsed (${error instanceof Error ? error.message : String(error)}). Regenerate the tool call with valid JSON.`;
+          // The broken lazy `input` getter lives on the block already stored in
+          // history (2e); replace it with a plain value so the next API request
+          // can serialize the conversation.
+          Object.defineProperty(toolUse, "input", { value: {}, enumerable: true, writable: true, configurable: true });
+          await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input: {} });
+          await emit(options, { type: "tool.finished", taskId, toolUseId: toolUse.id, name: toolUse.name, isError: true, contentPreview: content });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content,
+            is_error: true,
+          });
+          continue;
+        }
+
+        const signature = toolCallSignature(toolUse.name, input);
 
         // Check how many times this exact call appeared in the recent window.
         const repeatedCount = recentToolCallSignatures.filter(item => item === signature).length;
@@ -282,7 +361,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         // Reject the call if it exceeds the repeat limit; feed back an error result instead.
         if (repeatedCount >= REPEATED_TOOL_CALL_LIMIT) {
           const content = "Repeated tool call refused: this exact tool call was already executed recently. Use the previous result already in context, choose a genuinely different necessary tool call, or provide the final answer now.";
-          await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input: toolUse.input });
+          await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input });
           await emit(options, { type: "tool.finished", taskId, toolUseId: toolUse.id, name: toolUse.name, isError: true, contentPreview: content });
           toolResults.push({
             type: "tool_result",
@@ -294,8 +373,8 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         }
 
         // Normal path: actually run the tool.
-        await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input: toolUse.input });
-        const result = await executeTool(toolUse.name, toolUse.input, ctx);
+        await emit(options, { type: "tool.started", taskId, toolUseId: toolUse.id, name: toolUse.name, input });
+        const result = await executeTool(toolUse.name, input, ctx);
         await emit(options, { type: "tool.finished", taskId, toolUseId: toolUse.id, name: toolUse.name, isError: Boolean(result.isError), contentPreview: preview(result.content) });
         toolResults.push({
           type: "tool_result",
@@ -305,7 +384,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         });
       }
 
-      // 2i. Feed all tool results back into the conversation as a single user message.
+      // 2j. Feed all tool results back into the conversation as a single user message.
       messages.push({ role: "user", content: toolResults });
     }
 
@@ -318,8 +397,9 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       return;
     }
     // If the run produced no meaningful conversation, roll back the initial user prompt
-    // so the history stays clean.
-    if (messages.length === turnStart + 1) messages.splice(turnStart);
+    // so the history stays clean. Skipped when compaction already rewrote the
+    // history (positions no longer match).
+    if (!compactedThisRun && messages.length === turnStart + 1) messages.splice(turnStart);
     const message = error instanceof Error ? error.message : String(error);
     await emit(options, { type: "run.error", taskId, message });
     throw error;
@@ -344,8 +424,8 @@ function preview(content: string, maxLength = 4_000): string {
   return `${content.slice(0, maxLength)}\n\n[preview truncated]`;
 }
 
-function toolCallSignature(toolUse: ToolUseBlock): string {
-  return `${toolUse.name}:${stableStringify(toolUse.input)}`;
+function toolCallSignature(name: string, input: unknown): string {
+  return `${name}:${stableStringify(input)}`;
 }
 
 /** Synthetic result for a tool_use that never ran because the user stopped the run. */

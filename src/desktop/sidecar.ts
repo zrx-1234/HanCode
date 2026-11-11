@@ -168,6 +168,7 @@ async function runTask(taskId: string, prompt: string, controller: AbortControll
       baseURL: current.config.baseURL,
       maxTurns: current.config.maxTurns,
       effort: current.config.effort,
+      compactionThresholdTokens: current.config.compactionThresholdTokens,
       web: current.config.web,
       system: current.system,
       session: current.session,

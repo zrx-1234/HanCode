@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_COMPACTION_THRESHOLD_TOKENS } from "./agent/compaction";
 
 export type EffortConfig = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 export type WebSearchAdapterConfig = "tavily" | "brave" | "searxng";
@@ -39,6 +40,8 @@ export type HanCodeConfig = {
   maxTurns: number;
   effort: EffortConfig;
   web: WebConfig;
+  /** Context size (tokens) that triggers automatic compaction; 0 disables it. */
+  compactionThresholdTokens: number;
 };
 
 type ConfigFile = {
@@ -47,6 +50,7 @@ type ConfigFile = {
   baseURL?: string;
   maxTurns?: number;
   effort?: string;
+  compactionThresholdTokens?: number;
   web?: WebConfigFile;
 };
 
@@ -85,6 +89,7 @@ export function loadConfig(workspacePath: string): HanCodeConfig {
     baseURL: configFile.baseURL || "https://api.anthropic.com",
     maxTurns: configFile.maxTurns ?? 20,
     effort: parseEffort(configFile.effort),
+    compactionThresholdTokens: configFile.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS,
     web: parseWebConfig(configFile.web),
   };
 }
@@ -134,6 +139,9 @@ function readConfigFile(): ConfigFile {
 function validateConfigFile(parsed: ConfigFile): void {
   if (parsed.maxTurns !== undefined && (!Number.isInteger(parsed.maxTurns) || parsed.maxTurns <= 0)) {
     throw new Error("hancode.config.json: maxTurns must be a positive integer.");
+  }
+  if (parsed.compactionThresholdTokens !== undefined && (!Number.isInteger(parsed.compactionThresholdTokens) || parsed.compactionThresholdTokens < 0)) {
+    throw new Error("hancode.config.json: compactionThresholdTokens must be a non-negative integer (0 disables compaction).");
   }
   if (parsed.effort !== undefined) parseEffort(parsed.effort);
   validateStringArray(parsed.web?.allowedDomains, "web.allowedDomains");

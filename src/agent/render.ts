@@ -34,6 +34,10 @@ export function createTerminalEventSink(): AgentEventSink {
       case "usage.updated":
         lastUsage = { taskUsage: event.taskUsage, sessionUsage: event.sessionUsage };
         break;
+      case "context.compacted":
+        stopRunning();
+        console.log(`\n[HanCode] Context compacted: ${event.removedMessages} earlier messages summarized into 1 (${event.keptMessages} kept).`);
+        break;
       case "run.refused":
         stopRunning();
         console.log("\n[HanCode] Claude refused this request.");

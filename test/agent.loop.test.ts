@@ -8,11 +8,14 @@ import type { WebConfig } from "../src/config";
 type MockStreamConfig = {
   text?: string;
   thinking?: string;
-  toolUses?: Array<{ id: string; name: string; input: unknown }>;
+  toolUses?: Array<{ id: string; name: string; input?: unknown; badInput?: string }>;
+  usage?: { input_tokens: number; output_tokens: number };
 };
 
 let mockStreamConfigs: MockStreamConfig[] = [];
 let streamCallIndex = 0;
+/** Params of every non-streaming create() call (compaction summaries). */
+let createCalls: unknown[] = [];
 
 function createMockStream(config: MockStreamConfig) {
   let textHandler: ((delta: string) => void) | undefined;
@@ -33,17 +36,33 @@ function createMockStream(config: MockStreamConfig) {
         role: "assistant",
         content: [
           ...(config.text ? [{ type: "text" as const, text: config.text }] : []),
-          ...(config.toolUses ?? []).map(tu => ({
-            type: "tool_use" as const,
-            id: tu.id,
-            name: tu.name,
-            input: tu.input,
-          })),
+          ...(config.toolUses ?? []).map(tu => {
+            const block: Record<string, unknown> = { type: "tool_use", id: tu.id, name: tu.name };
+            if (tu.badInput) {
+              // Simulate the SDK's lazy input getter when the model streamed
+              // malformed JSON: every access of `.input` throws.
+              Object.defineProperty(block, "input", {
+                enumerable: true,
+                configurable: true,
+                get() {
+                  throw new SyntaxError(tu.badInput);
+                },
+              });
+            } else {
+              block.input = tu.input;
+            }
+            return block;
+          }),
         ],
         model: "claude-test",
         stop_reason: (config.toolUses ?? []).length ? "tool_use" : "end_turn",
         stop_sequence: null,
-        usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        usage: {
+          input_tokens: config.usage?.input_tokens ?? 10,
+          output_tokens: config.usage?.output_tokens ?? 20,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
       };
     },
   };
@@ -57,6 +76,13 @@ mock.module("@anthropic-ai/sdk", () => {
         stream: mock(() => {
           const config = mockStreamConfigs[streamCallIndex++] ?? { text: "Done" };
           return createMockStream(config);
+        }),
+        create: mock(async (params: unknown) => {
+          createCalls.push(params);
+          return {
+            content: [{ type: "text", text: "SUMMARY: earlier work on the project." }],
+            usage: { input_tokens: 5, output_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          };
         }),
       };
     },
@@ -124,6 +150,7 @@ describe("agent loop end-to-end", () => {
   beforeEach(() => {
     mockStreamConfigs = [];
     streamCallIndex = 0;
+    createCalls = [];
   });
 
   test("single-turn conversation without tools", async () => {
@@ -235,6 +262,110 @@ describe("agent loop end-to-end", () => {
       .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
       .filter((b: any) => b.type === "tool_result" && b.is_error && typeof b.content === "string" && b.content.includes("stopped by the user"));
     expect(skipped.map((b: any) => b.tool_use_id).sort()).toEqual(["tool_2", "tool_3"]);
+  });
+
+  test("malformed streamed tool input becomes a recoverable tool error", async () => {
+    // The model streams a write_file call whose JSON input is invalid; the run
+    // must survive with an is_error tool_result so the model can retry.
+    mockStreamConfigs = [
+      { toolUses: [{ id: "tool_bad", name: "write_file", badInput: "JSON Parse error: Invalid number" }] },
+      { toolUses: [{ id: "tool_retry", name: "write_file", input: { path: "a.txt", content: "hello" } }] },
+      { text: "Retried and wrote the file." },
+    ];
+
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "hancode-loop-"));
+    const session = { messages: [] as any[], readState: new Map(), usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } };
+    const opts = await createOptions({ workspaceRoot, session, prompt: "write a.txt" });
+    await runAgent(opts);
+
+    const events = getEvents(opts);
+    expect(events.some((e) => e.type === "run.error")).toBe(false);
+    expect(events.some((e) => e.type === "run.completed")).toBe(true);
+
+    // The bad call is reported as a failed tool, not a failed run.
+    const bad = events.find((e) => e.type === "tool.finished" && (e as any).isError && String((e as any).contentPreview).includes("could not be parsed"));
+    expect(bad).toBeTruthy();
+
+    // The retry ran normally.
+    const retried = events.find((e) => e.type === "tool.finished" && (e as any).toolUseId === "tool_retry" && !(e as any).isError);
+    expect(retried).toBeTruthy();
+
+    // History stays serializable for the next API request: the broken lazy
+    // input getter was replaced with a plain value.
+    expect(() => JSON.stringify(session.messages)).not.toThrow();
+    const assistant = session.messages.find((m: any) => m.role === "assistant")!;
+    const badBlock = assistant.content.find((b: any) => b.type === "tool_use" && b.id === "tool_bad")!;
+    expect(badBlock.input).toEqual({});
+
+    // tool_use / tool_result pairing stays intact for the API.
+    const toolUseIds = session.messages
+      .filter((m: any) => m.role === "assistant")
+      .flatMap((m: any) => m.content.filter((b: any) => b.type === "tool_use").map((b: any) => b.id));
+    const toolResultIds = session.messages
+      .filter((m: any) => m.role === "user" && Array.isArray(m.content))
+      .flatMap((m: any) => m.content.filter((b: any) => b.type === "tool_result").map((b: any) => b.tool_use_id));
+    expect(toolResultIds.sort()).toEqual(toolUseIds.sort());
+  });
+
+  test("compacts long context when the token estimate passes the threshold", async () => {
+    // 16 pre-existing session messages plus this task's exchange give the
+    // compaction planner room; the first turn reports a huge context size.
+    const session = {
+      messages: Array.from({ length: 16 }, (_, i) => ({ role: i % 2 === 0 ? "user" : "assistant", content: `older ${i}` })) as any[],
+      readState: new Map(),
+      usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+    };
+    mockStreamConfigs = [
+      { toolUses: [{ id: "tool_1", name: "list_files", input: { pattern: "*" } }], usage: { input_tokens: 150_000, output_tokens: 500 } },
+      { text: "done after compaction" },
+    ];
+
+    const opts = await createOptions({ session, compactionThresholdTokens: 100_000 });
+    await runAgent(opts);
+
+    const events = getEvents(opts);
+    expect(events.some((e) => e.type === "run.error")).toBe(false);
+    expect(events.some((e) => e.type === "run.completed")).toBe(true);
+
+    // Compaction fired: older messages were replaced by a summary.
+    const compacted = events.find((e) => e.type === "context.compacted");
+    expect(compacted).toBeTruthy();
+    expect((compacted as any).removedMessages).toBeGreaterThan(0);
+
+    // The summarization went through the non-streaming API.
+    expect(createCalls.length).toBe(1);
+    const summaryRequest = (createCalls[0] as any);
+    expect(String(summaryRequest.messages[0].content)).toContain("Summarize");
+
+    // History now starts with the compacted-context marker and shrank.
+    const first = session.messages[0] as any;
+    expect(first.role).toBe("user");
+    expect(String(first.content)).toContain("[HanCode compacted context]");
+    expect(session.messages.length).toBeLessThan(19);
+
+    // The kept tail stays valid API history: every tool_use has its result.
+    const toolUseIds = session.messages
+      .filter((m: any) => m.role === "assistant")
+      .flatMap((m: any) => (Array.isArray(m.content) ? m.content.filter((b: any) => b.type === "tool_use").map((b: any) => b.id) : []));
+    const toolResultIds = session.messages
+      .filter((m: any) => m.role === "user" && Array.isArray(m.content))
+      .flatMap((m: any) => m.content.filter((b: any) => b.type === "tool_result").map((b: any) => b.tool_use_id));
+    expect(toolResultIds.sort()).toEqual(toolUseIds.sort());
+  });
+
+  test("does not compact below the configured threshold", async () => {
+    const session = {
+      messages: Array.from({ length: 16 }, (_, i) => ({ role: i % 2 === 0 ? "user" : "assistant", content: `older ${i}` })) as any[],
+      readState: new Map(),
+      usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+    };
+    mockStreamConfigs = [{ text: "small turn" }];
+
+    const opts = await createOptions({ session, compactionThresholdTokens: 100_000 });
+    await runAgent(opts);
+
+    expect(createCalls.length).toBe(0);
+    expect((session.messages[0] as any).content).toBe("older 0");
   });
 
   test("rejects repeated identical tool calls", async () => {

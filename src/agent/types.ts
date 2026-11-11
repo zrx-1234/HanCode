@@ -77,6 +77,7 @@ export type AgentEvent =
   | { type: "confirmation.requested"; taskId: string; confirmationId: string; request: ConfirmationRequest }
   | { type: "confirmation.resolved"; taskId: string; confirmationId: string; allowed: boolean }
   | { type: "usage.updated"; taskId: string; taskUsage: UsageTotals; sessionUsage: UsageTotals }
+  | { type: "context.compacted"; taskId: string; removedMessages: number; keptMessages: number }
   | { type: "run.refused"; taskId: string }
   | { type: "run.max_turns"; taskId: string; maxTurns: number }
   | { type: "run.stopped"; taskId: string }

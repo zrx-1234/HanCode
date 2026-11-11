@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -62,7 +62,8 @@ type ConfigDraft = {
 
 type ConversationMessage =
   | { id: string; taskId: string; role: "user"; text: string }
-  | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped"; taskStartMs?: number; taskEndMs?: number | null };
+  | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped"; taskStartMs?: number; taskEndMs?: number | null }
+  | { id: string; taskId: string; role: "system"; kind: "compacted"; removedMessages?: number };
 
 const emptyUsage: UsageTotals = {
   inputTokens: 0,
@@ -85,6 +86,12 @@ function historyToMessages(history: HistoryMessage[] | undefined): ConversationM
         ? message.content
         : message.content.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
       if (!text || text.startsWith("[HanCode system reminder]")) continue;
+      // Compaction replaced older history with a summary marker — render it as
+      // a divider instead of a fake user bubble.
+      if (text.startsWith("[HanCode compacted context]")) {
+        out.push({ id: `history-${index}`, taskId: "history", role: "system", kind: "compacted" });
+        continue;
+      }
       out.push({ id: `history-${index}`, taskId: "history", role: "user", text });
     } else {
       const blocks = Array.isArray(message.content) ? message.content : [];
@@ -112,6 +119,9 @@ const dictionary = {
     run: "运行",
     stop: "停止",
     newChat: "新对话",
+    historyFolded: "▸ 展开历史对话（{count} 条消息）",
+    contextCompacted: "✦ 已压缩上下文：{count} 条早期消息已摘要",
+    contextCompactedNoCount: "✦ 已压缩上下文（早期对话已摘要）",
     tools: "工具",
     noTools: "暂无工具调用。",
     subAgents: "子 Agent",
@@ -161,6 +171,9 @@ const dictionary = {
     run: "Run",
     stop: "Stop",
     newChat: "New Chat",
+    historyFolded: "▸ Show earlier conversation ({count} messages)",
+    contextCompacted: "✦ Context compacted: {count} earlier messages summarized",
+    contextCompactedNoCount: "✦ Context compacted (earlier conversation summarized)",
     tools: "Tools",
     noTools: "No tools yet.",
     subAgents: "Sub-agents",
@@ -221,8 +234,13 @@ export default function App() {
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const conversationBoxRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  // Buffered stream deltas per task, flushed on a short timer so a fast token
+  // stream does not re-render the whole conversation per delta.
+  const pendingDeltasRef = useRef(new Map<string, { text: string; thinking: string }>());
+  const flushTimerRef = useRef<number | null>(null);
 
-  const t = (key: keyof typeof dictionary.en) => dictionary[locale][key];
+  const t = useCallback((key: keyof typeof dictionary.en) => dictionary[locale][key], [locale]);
 
   useEffect(() => {
     return window.hancode.onAgentEvent(handleAgentEvent);
@@ -247,8 +265,17 @@ export default function App() {
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
-    conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    conversationEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages]);
+
+  /** First index of the newest task's messages; everything before folds away. */
+  const foldIndex = useMemo(() => {
+    if (historyExpanded || messages.length === 0) return 0;
+    const lastTaskId = messages[messages.length - 1].taskId;
+    const index = messages.findIndex(message => message.taskId === lastTaskId);
+    return index > 0 ? index : 0;
+  }, [messages, historyExpanded]);
+  const visibleMessages = useMemo(() => (foldIndex > 0 ? messages.slice(foldIndex) : messages), [messages, foldIndex]);
 
   function handleConversationScroll() {
     const el = conversationBoxRef.current;
@@ -302,6 +329,8 @@ export default function App() {
     setError("");
     setStatus("running");
     stickToBottomRef.current = true;
+    // New task: fold previous conversation back behind the history banner.
+    setHistoryExpanded(false);
     try {
       const result = await window.hancode.startTask(text);
       setTaskId(result.taskId);
@@ -398,18 +427,47 @@ export default function App() {
     void startTask();
   }
 
+  /** Append a stream delta to the per-task buffer, starting the flush timer. */
+  function bufferDelta(taskId: string, kind: "text" | "thinking", text: string) {
+    const pending = pendingDeltasRef.current.get(taskId) ?? { text: "", thinking: "" };
+    pending[kind] += text;
+    pendingDeltasRef.current.set(taskId, pending);
+    if (flushTimerRef.current === null) {
+      flushTimerRef.current = window.setTimeout(() => {
+        flushTimerRef.current = null;
+        flushDeltas();
+      }, 80);
+    }
+  }
+
+  /** Apply all buffered deltas in one state update per task. */
+  function flushDeltas() {
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    const pending = pendingDeltasRef.current;
+    if (pending.size === 0) return;
+    pendingDeltasRef.current = new Map();
+    for (const [taskId, { text, thinking }] of pending) {
+      if (!text && !thinking) continue;
+      updateAssistant(taskId, message => ({ ...message, text: message.text + text, thinking: message.thinking + thinking }));
+    }
+  }
+
   function handleAgentEvent(event: AgentEvent) {
     switch (event.type) {
       case "run.started":
         trackSubAgentStart(event.taskId);
         break;
       case "output.delta":
-        updateAssistant(event.taskId, message => ({ ...message, text: message.text + event.text }));
+        bufferDelta(event.taskId, "text", event.text);
         break;
       case "thinking.delta":
-        updateAssistant(event.taskId, message => ({ ...message, thinking: message.thinking + event.text }));
+        bufferDelta(event.taskId, "thinking", event.text);
         break;
       case "tool.started": {
+        flushDeltas();
         const toolId = `${event.taskId}/${event.toolUseId}`;
         setTools(items => [...items, { id: toolId, taskId: event.taskId, toolUseId: event.toolUseId, name: event.name, input: event.input, status: "running" }]);
         break;
@@ -423,6 +481,15 @@ export default function App() {
       case "usage.updated":
         setTaskUsage(event.taskUsage);
         setSessionUsage(event.sessionUsage);
+        break;
+      case "context.compacted":
+        flushDeltas();
+        setMessages(items => [
+          ...items,
+          // Attribute the divider to the main task (sub-agent taskIds carry a
+          // "/sub" suffix that would break per-task folding).
+          { id: `compacted-${event.taskId}-${items.length}`, taskId: event.taskId.split("/")[0], role: "system", kind: "compacted", removedMessages: event.removedMessages },
+        ]);
         break;
       case "run.completed":
         trackSubAgentFinish(event.taskId, "done");
@@ -468,14 +535,15 @@ export default function App() {
   }
 
   function finishTask(finishedTaskId: string, nextStatus: "done" | "error" | "stopped") {
+    flushDeltas();
     updateAssistant(finishedTaskId, message => ({ ...message, status: nextStatus, taskEndMs: message.taskEndMs ?? Date.now() }));
     setStatus(nextStatus === "error" ? "error" : "idle");
     setTaskId(null);
   }
 
-  function toggleThinking(messageId: string) {
+  const toggleThinking = useCallback((messageId: string) => {
     setMessages(items => items.map(item => item.role === "assistant" && item.id === messageId ? { ...item, thinkingOpen: !item.thinkingOpen } : item));
-  }
+  }, []);
 
   return (
     <main className="app-shell">
@@ -533,7 +601,12 @@ export default function App() {
         <section className="chat-panel">
           <div className="conversation-box" ref={conversationBoxRef} onScroll={handleConversationScroll}>
             {messages.length === 0 && <span className="placeholder">{t("emptyChat")}</span>}
-            {messages.map(message => <ConversationBubble key={message.id} message={message} t={t} onToggleThinking={toggleThinking} />)}
+            {foldIndex > 0 && (
+              <button className="history-fold-banner" onClick={() => setHistoryExpanded(true)}>
+                {t("historyFolded").replace("{count}", String(foldIndex))}
+              </button>
+            )}
+            {visibleMessages.map(message => <ConversationBubble key={message.id} message={message} t={t} onToggleThinking={toggleThinking} />)}
             <div ref={conversationEndRef} />
           </div>
           <div className="composer">
@@ -691,10 +764,16 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
-function ConversationBubble({ message, t, onToggleThinking }: { message: ConversationMessage; t: (key: keyof typeof dictionary.en) => string; onToggleThinking: (id: string) => void }) {
+const ConversationBubble = memo(function ConversationBubble({ message, t, onToggleThinking }: { message: ConversationMessage; t: (key: keyof typeof dictionary.en) => string; onToggleThinking: (id: string) => void }) {
+  if (message.role === "system") {
+    const text = message.removedMessages !== undefined
+      ? t("contextCompacted").replace("{count}", String(message.removedMessages))
+      : t("contextCompactedNoCount");
+    return <div className="context-divider">{text}</div>;
+  }
   if (message.role === "user") return <article className="message-bubble user"><div>{message.text}</div></article>;
   return <AssistantBubble message={message} t={t} onToggleThinking={onToggleThinking} />;
-}
+});
 
 function AssistantBubble({ message, t, onToggleThinking }: { message: AssistantMessage; t: (key: keyof typeof dictionary.en) => string; onToggleThinking: (id: string) => void }) {
   const streaming = message.status === "streaming";
@@ -718,18 +797,18 @@ function AssistantBubble({ message, t, onToggleThinking }: { message: AssistantM
           {message.thinkingOpen && <pre>{message.thinking}</pre>}
         </section>
       )}
-      <MarkdownContent text={message.text || "…"} />
+      <MarkdownContent text={message.text || "…"} highlight={!streaming} />
     </article>
   );
 }
 
-function MarkdownContent({ text }: { text: string }) {
+const MarkdownContent = memo(function MarkdownContent({ text, highlight = true }: { text: string; highlight?: boolean }) {
   return (
     <div className="markdown-body">
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={highlight ? [rehypeHighlight] : []}
         components={{
           a({ href, children }) {
             return <a href={href} onClick={event => handleMarkdownLinkClick(event, href)}>{children}</a>;
@@ -740,7 +819,7 @@ function MarkdownContent({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 function handleMarkdownLinkClick(event: React.MouseEvent<HTMLAnchorElement>, href: string | undefined): void {
   if (!href) return;
