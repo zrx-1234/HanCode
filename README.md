@@ -103,6 +103,11 @@ bun install
   "effort": "auto",
   "thinkingMode": "auto",
   "compactionThresholdTokens": 100000,
+  "vision": {
+    "model": "",
+    "baseURL": "",
+    "apiKey": ""
+  },
   "web": {
     "enabled": false,
     "allowedDomains": [],
@@ -147,6 +152,20 @@ bun install
 | max | 48000 |
 
 使用第三方兼容网关（火山方舟、各类中转）遇到 `400 InvalidParameter` 时，保持默认 `auto` 即可；也可显式设为 `budget`。
+
+`vision` 配置段用于**多模态（视觉）模型路由**：当主模型不支持图片输入（如火山方舟 coding 套餐的 `glm-latest` 只回 `Model only support text input`）时，可在此配置一套独立的视觉模型 API——**请求的会话里含 image 内容块时走视觉模型，纯文本请求仍走主模型**：
+
+```json
+"vision": {
+  "model": "glm-4.6v",
+  "baseURL": "https://ark.cn-beijing.volces.com/api/anthropic",
+  "apiKey": "另一个key"
+}
+```
+
+- `vision.model` 留空或省略 = 禁用路由（默认），所有请求走主模型。
+- `vision.baseURL` / `vision.apiKey` 可省略，缺省回落到顶层 `baseURL` / `apiKey`（视觉模型与主模型同网关同 key 时只需填 model）。
+- 路由按请求动态判定：图片进入历史（贴图、`read_file` 读图、`screenshot`、`web_fetch` 图片）后该请求走视觉模型；上下文压缩把图片摘要掉之后自动回落主模型。`thinking` 语法也按视觉模型所在端点自动判定。
 
 `web.enabled` 默认关闭。开启后会向模型暴露 `web_search` 和 `web_fetch`：
 

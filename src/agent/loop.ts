@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlockParam, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { ContentBlockParam, MessageParam, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { EffortConfig, WebConfig } from "../config";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
@@ -27,6 +27,12 @@ export type RunAgentOptions = {
   effort: EffortConfig;
   /** Selection of the `thinking` parameter syntax; defaults to "auto" (endpoint-based). */
   thinkingMode?: ThinkingMode;
+  /**
+   * Vision (multimodal) model settings: requests whose conversation contains
+   * image blocks are routed to this model/baseURL; text-only requests keep
+   * using the main model. Omit to send everything to the main model.
+   */
+  vision?: { model: string; baseURL: string; apiKey: string };
   web: WebConfig;
   system: string;
   taskId?: string;
@@ -76,11 +82,14 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   // Generate a unique task id when the caller didn't supply one.
   const taskId = options.taskId ?? `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  // Set up the Anthropic API client.
+  // Set up the Anthropic API client(s). The vision client is created lazily
+  // below, only when vision routing is enabled and an image-bearing request
+  // is about to be sent.
   const client = new Anthropic({
     apiKey: options.apiKey || undefined,
     baseURL: options.baseURL,
   });
+  let visionClient: Anthropic | undefined;
 
   // Cancellation: prefer the caller's signal, otherwise create our own.
   const controller = new AbortController();
@@ -171,6 +180,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         maxTurns: config.max_turns ?? options.maxTurns,
         effort: config.effort ?? options.effort,
         thinkingMode: options.thinkingMode,
+        vision: options.vision,
         compactionThresholdTokens: options.compactionThresholdTokens,
         web: options.web,
         system: options.system,
@@ -261,10 +271,23 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       // 2e. Stream the next model response from the Anthropic API. The
       // thinking syntax depends on the endpoint: `adaptive` is only accepted
       // by the official Anthropic API, gateways need `budget_tokens`.
-      const stream = client.messages.stream({
-        model: options.model,
+      // Requests whose conversation contains image blocks are routed to the
+      // configured vision model (text-only models reject image input); once
+      // compaction summarizes the images away, requests fall back to the
+      // main model automatically.
+      const useVision = options.vision !== undefined && options.vision.model !== "" && messagesContainImages(messages);
+      const requestModel = useVision && options.vision ? options.vision.model : options.model;
+      const requestBaseURL = useVision && options.vision ? options.vision.baseURL : options.baseURL;
+      if (useVision && options.vision && !visionClient) {
+        visionClient = new Anthropic({
+          apiKey: options.vision.apiKey || undefined,
+          baseURL: options.vision.baseURL,
+        });
+      }
+      const stream = (useVision && visionClient ? visionClient : client).messages.stream({
+        model: requestModel,
         max_tokens: 64_000,
-        thinking: buildThinkingParam(options.baseURL, options.thinkingMode ?? "auto", options.effort),
+        thinking: buildThinkingParam(requestBaseURL, options.thinkingMode ?? "auto", options.effort),
         output_config: options.effort === "auto" ? undefined : { effort: options.effort },
         system: options.system,
         tools: getToolDefinitions(options.web, options.allowedTools),
@@ -424,6 +447,22 @@ async function emitUsage(options: RunAgentOptions, taskId: string, taskUsage: Us
     taskId,
     taskUsage: { ...taskUsage },
     sessionUsage: { ...sessionUsage },
+  });
+}
+
+/** True when any message in the conversation carries an image content block. */
+function messagesContainImages(messages: MessageParam[]): boolean {
+  return messages.some(message => {
+    if (typeof message.content === "string") return false;
+    return message.content.some(block => {
+      // Top-level image blocks (user prompts)…
+      if (block.type === "image") return true;
+      // …and images nested inside tool_result contents (read_file/screenshot).
+      if (block.type === "tool_result" && Array.isArray(block.content)) {
+        return block.content.some(nested => nested.type === "image");
+      }
+      return false;
+    });
   });
 }
 

@@ -6,6 +6,11 @@
   "effort": "auto",
   "thinkingMode": "auto",
   "compactionThresholdTokens": 100000,
+  "vision": {
+    "model": "",
+    "baseURL": "",
+    "apiKey": ""
+  },
   "web": {
     "enabled": false,
     "allowedDomains": [],

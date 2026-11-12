@@ -33,6 +33,17 @@ export type WebConfig = {
   };
 };
 
+/**
+ * Vision (multimodal) model settings: requests containing image blocks are
+ * routed to this model. An empty `model` disables routing (all requests go to
+ * the main text model). `baseURL`/`apiKey` fall back to the top-level values.
+ */
+export type VisionConfig = {
+  model: string;
+  baseURL: string;
+  apiKey: string;
+};
+
 export type HanCodeConfig = {
   workspaceRoot: string;
   apiKey: string;
@@ -42,6 +53,7 @@ export type HanCodeConfig = {
   effort: EffortConfig;
   /** Selection of the `thinking` request parameter syntax; see agent/thinking.ts. */
   thinkingMode: ThinkingMode;
+  vision: VisionConfig;
   web: WebConfig;
   /** Context size (tokens) that triggers automatic compaction; 0 disables it. */
   compactionThresholdTokens: number;
@@ -55,7 +67,14 @@ type ConfigFile = {
   effort?: string;
   thinkingMode?: string;
   compactionThresholdTokens?: number;
+  vision?: VisionConfigFile;
   web?: WebConfigFile;
+};
+
+type VisionConfigFile = {
+  model?: string;
+  baseURL?: string;
+  apiKey?: string;
 };
 
 type WebConfigFile = {
@@ -94,6 +113,7 @@ export function loadConfig(workspacePath: string): HanCodeConfig {
     maxTurns: configFile.maxTurns ?? 100,
     effort: parseEffort(configFile.effort),
     thinkingMode: parseThinkingMode(configFile.thinkingMode),
+    vision: parseVisionConfig(configFile.vision, configFile.baseURL || "https://api.anthropic.com", configFile.apiKey ?? ""),
     compactionThresholdTokens: configFile.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS,
     web: parseWebConfig(configFile.web),
   };
@@ -150,6 +170,7 @@ function validateConfigFile(parsed: ConfigFile): void {
   }
   if (parsed.effort !== undefined) parseEffort(parsed.effort);
   if (parsed.thinkingMode !== undefined) parseThinkingMode(parsed.thinkingMode);
+  validateVisionConfig(parsed.vision);
   validateStringArray(parsed.web?.allowedDomains, "web.allowedDomains");
   validateStringArray(parsed.web?.blockedDomains, "web.blockedDomains");
   validatePositiveInteger(parsed.web?.search?.maxResults, "web.search.maxResults");
@@ -171,6 +192,23 @@ function parseThinkingMode(value: string | undefined): ThinkingMode {
   if (value === undefined || value === "") return "auto";
   if (value === "auto" || value === "adaptive" || value === "budget") return value;
   throw new Error("hancode.config.json: thinkingMode must be one of auto, adaptive, budget.");
+}
+
+/** Resolves the vision section with baseURL/apiKey falling back to the main values. */
+function parseVisionConfig(value: VisionConfigFile | undefined, fallbackBaseURL: string, fallbackApiKey: string): VisionConfig {
+  const model = value?.model ?? "";
+  return {
+    model,
+    baseURL: value?.baseURL || fallbackBaseURL,
+    apiKey: value?.apiKey || fallbackApiKey,
+  };
+}
+
+function validateVisionConfig(value: VisionConfigFile | undefined): void {
+  if (value === undefined) return;
+  validateString(value.model, "vision.model");
+  validateString(value.baseURL, "vision.baseURL");
+  validateString(value.apiKey, "vision.apiKey");
 }
 
 function parseWebConfig(value: WebConfigFile | undefined): WebConfig {
@@ -211,6 +249,11 @@ function parseWebFetchAdapter(value: string | undefined): WebFetchAdapterConfig 
   if (value === undefined || value === "") return "http";
   if (value === "http" || value === "tavily") return value;
   throw new Error("hancode.config.json: web.fetch.adapter must be one of http, tavily.");
+}
+
+function validateString(value: unknown, name: string): void {
+  if (value === undefined || value === "") return;
+  if (typeof value !== "string") throw new Error(`hancode.config.json: ${name} must be a string.`);
 }
 
 function validateStringArray(value: unknown, name: string): void {

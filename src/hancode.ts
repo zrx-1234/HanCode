@@ -72,6 +72,7 @@ async function runOnce(
       maxTurns: config.maxTurns,
       effort: config.effort,
       thinkingMode: config.thinkingMode,
+      vision: config.vision.model !== "" ? config.vision : undefined,
       compactionThresholdTokens: config.compactionThresholdTokens,
       web: config.web,
       system,

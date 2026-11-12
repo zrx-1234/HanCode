@@ -9,6 +9,11 @@
 
 ### 新增
 
+- **视觉模型独立路由（`vision` 配置）**：主模型不支持图片输入时（如方舟 coding
+  套餐的 `glm-latest`），可在 `hancode.config.json` 的 `vision` 段配置一套独立的
+  视觉模型 API（`model` 必填，`baseURL`/`apiKey` 缺省回落主配置）——请求会话含
+  image 内容块时自动走视觉模型，纯文本请求继续走主模型；`thinking` 语法按视觉
+  模型所在端点自动判定；上下文压缩掉图片后自动回落主模型。
 - **多模态（视觉）能力**：模型现在可以「看见」图片，覆盖四个场景：
   - `read_file` 读取 workspace 内的 PNG/JPEG/WebP/GIF 文件时以 Anthropic image
     内容块返回（不写 readState，不支持 offset/limit）。

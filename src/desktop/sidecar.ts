@@ -174,6 +174,7 @@ async function runTask(taskId: string, prompt: string | ReturnType<typeof buildU
       maxTurns: current.config.maxTurns,
       effort: current.config.effort,
       thinkingMode: current.config.thinkingMode,
+      vision: current.config.vision.model !== "" ? current.config.vision : undefined,
       compactionThresholdTokens: current.config.compactionThresholdTokens,
       web: current.config.web,
       system: current.system,

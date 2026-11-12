@@ -21,10 +21,14 @@ const PNG_1X1 = Buffer.from(
 
 let mockStreamConfigs: MockStreamConfig[] = [];
 let streamCallIndex = 0;
+/** Constructor calls of every MockAnthropic instance, for vision-routing assertions. */
+let constructorCalls: Array<{ client: unknown; args: unknown }> = [];
 /** Params of every non-streaming create() call (compaction summaries). */
 let createCalls: unknown[] = [];
 /** Params of every streaming messages.stream() call. */
 let streamParams: unknown[] = [];
+/** Client instance per streaming call, for vision-routing assertions. */
+let streamClients: unknown[] = [];
 
 function createMockStream(config: MockStreamConfig) {
   let textHandler: ((delta: string) => void) | undefined;
@@ -81,9 +85,14 @@ function createMockStream(config: MockStreamConfig) {
 mock.module("@anthropic-ai/sdk", () => {
   return {
     default: class MockAnthropic {
+      constructor(constructorArgs: unknown) {
+        // Recorded so tests can assert which client (main vs vision) made a call.
+        constructorCalls.push({ client: this, args: constructorArgs });
+      }
       messages = {
         stream: mock((params: unknown) => {
           streamParams.push(params);
+          streamClients.push(this);
           const config = mockStreamConfigs[streamCallIndex++] ?? { text: "Done" };
           return createMockStream(config);
         }),
@@ -162,6 +171,8 @@ describe("agent loop end-to-end", () => {
     streamCallIndex = 0;
     createCalls = [];
     streamParams = [];
+    streamClients = [];
+    constructorCalls = [];
   });
 
   test("single-turn conversation without tools", async () => {
@@ -191,6 +202,67 @@ describe("agent loop end-to-end", () => {
     const first = (streamParams[0] as { messages: Array<{ role: string; content: unknown }> }).messages[0];
     expect(first.role).toBe("user");
     expect(first.content).toEqual(promptBlocks);
+  });
+
+  describe("vision model routing", () => {
+    const VISION = { model: "glm-4.6v", baseURL: "https://vision.example.com/api", apiKey: "vision-key" };
+    const imagePrompt: ContentBlockParam[] = [
+      { type: "text", text: "describe this" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_1X1.toString("base64") } },
+    ];
+
+    test("image prompts go to the vision model and client", async () => {
+      mockStreamConfigs = [{ text: "Vision reply." }];
+
+      const opts = await createOptions({ prompt: imagePrompt, vision: VISION });
+      await runAgent(opts);
+
+      expect((streamParams[0] as { model: string }).model).toBe("glm-4.6v");
+      // thinking syntax is chosen for the vision endpoint, not the main one
+      expect((streamParams[0] as { thinking: { type: string; budget_tokens?: number } }).thinking.type).toBe("enabled");
+      // a second client was constructed with the vision baseURL/key
+      const visionConstructor = constructorCalls.find(call =>
+        (call.args as { baseURL?: string })?.baseURL === VISION.baseURL,
+      );
+      expect(visionConstructor).toBeDefined();
+      expect(streamClients[0]).toBe(visionConstructor?.client);
+    });
+
+    test("text-only prompts keep using the main model", async () => {
+      mockStreamConfigs = [{ text: "Text reply." }];
+
+      const opts = await createOptions({ vision: VISION });
+      await runAgent(opts);
+
+      expect((streamParams[0] as { model: string }).model).toBe("claude-test");
+      expect(streamClients[0]).toBe(constructorCalls[0]?.client);
+    });
+
+    test("image tool results switch subsequent turns to the vision model", async () => {
+      mockStreamConfigs = [
+        { toolUses: [{ id: "tool_1", name: "read_file", input: { path: "shot.png" } }] },
+        { text: "Described the image." },
+      ];
+
+      const opts = await createOptions({ vision: VISION });
+      await writeFile(join(opts.workspaceRoot, "shot.png"), PNG_1X1);
+      await runAgent(opts);
+
+      // first request: text-only prompt → main model
+      expect((streamParams[0] as { model: string }).model).toBe("claude-test");
+      // second request carries the image tool_result → vision model
+      expect((streamParams[1] as { model: string }).model).toBe("glm-4.6v");
+    });
+
+    test("without vision config image prompts keep using the main model", async () => {
+      mockStreamConfigs = [{ text: "Ok." }];
+
+      const opts = await createOptions({ prompt: imagePrompt });
+      await runAgent(opts);
+
+      expect((streamParams[0] as { model: string }).model).toBe("claude-test");
+      expect(constructorCalls.length).toBe(1);
+    });
   });
 
   test("image tool results are previewed with a placeholder and fed back as blocks", async () => {
