@@ -8,13 +8,14 @@ import { editFileTool } from "./editFile";
 import { listFilesTool } from "./listFiles";
 import { readFileTool } from "./readFile";
 import { runCommandTool } from "./runCommand";
+import { screenshotTool } from "./screenshot";
 import { searchTextTool } from "./searchText";
 import { skillTool } from "./skill";
 import { webFetchTool } from "./webFetch";
 import { webSearchTool } from "./webSearch";
 import { writeFileTool } from "./writeFile";
 
-const baseTools = [skillTool, agentTool, readFileTool, listFilesTool, searchTextTool, editFileTool, writeFileTool, runCommandTool, bashTool];
+const baseTools = [skillTool, agentTool, readFileTool, listFilesTool, searchTextTool, editFileTool, writeFileTool, runCommandTool, bashTool, screenshotTool];
 const webTools = [webSearchTool, webFetchTool];
 
 function filterByAllowedTools(tools: typeof baseTools, allowedTools?: string[]) {

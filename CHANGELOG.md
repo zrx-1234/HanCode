@@ -14,6 +14,9 @@
     内容块返回（不写 readState，不支持 offset/limit）。
   - `web_fetch` 抓到图片 URL（`image/*` content-type）时返回 image 内容块而非乱码
     文本，同样享受 TTL 缓存（上限 4MB）。
+  - 新增 `screenshot` 工具：截取整个屏幕（含多显示器虚拟屏幕）作为 image 内容块，
+    配合视觉模型即可「看屏幕干活」。隐私敏感：safe/normal 模式逐次确认，仅 super
+    自动放行；截图临时文件读取后立即删除；首版仅支持 Windows（PowerShell 截屏）。
 - **Desktop 编辑配置文件快捷按钮**：顶栏新增 **编辑配置文件 / Edit config
   file** 图标按钮，点击用系统默认编辑器打开当前生效的 `hancode.config.json`
   （开发态为项目根的，打包态为 userData 的），方便快速修改表单未覆盖的

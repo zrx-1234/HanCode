@@ -4,7 +4,7 @@ HanCode 是一个 Coding Agent，使用 Bun + TypeScript + Anthropic Claude API 
 
 ## 功能
 
-当前内置 9 个工具：
+当前内置 10 个工具：
 
 | 工具 | 作用 |
 |---|---|
@@ -17,6 +17,7 @@ HanCode 是一个 Coding Agent，使用 Bun + TypeScript + Anthropic Claude API 
 | `bash` | 运行 Bash 命令字符串；安全命令自动执行，危险/未知命令需确认 |
 | `web_search` | 联网检索公开网页，返回标题、URL 和摘要；需要启用 web 并配置搜索 API Key |
 | `web_fetch` | 抓取公开 HTTP/HTTPS URL 并提取可读文本；图片 URL 以 image 内容块返回；不支持认证、Cookie 或 JavaScript 渲染 |
+| `screenshot` | 截取整个屏幕（含多显示器虚拟屏幕）作为 image 内容块；safe/normal 模式需用户确认，super 自动放行；仅 Windows |
 
 ## 使用场景
 
@@ -313,6 +314,7 @@ HanCode 做了这些限制：
 - stdout/stderr 输出有长度限制，过大输出会保存到 `.hancode/command-output/`。
 - 命令写入 `.hancode/commands.jsonl` 审计日志。
 - 对未知或会修改 workspace 的命令进行交互确认；非 TTY 下默认拒绝。
+- `screenshot` 截取的是整个屏幕（包含其他应用窗口），隐私敏感：safe/normal 模式下每次都需用户确认，仅 super 模式自动放行；截图临时文件读取后立即删除。
 - 权限模式（Permission Mode）：支持 `safe` / `normal` / `super` 三档。
   - `safe`：所有命令都需确认；
   - `normal`：安全命令自动执行，危险/未知命令需确认（默认）；
