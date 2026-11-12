@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach, mock } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { AgentEvent } from "../src/agent/types";
 import type { WebConfig } from "../src/config";
 
@@ -11,6 +12,12 @@ type MockStreamConfig = {
   toolUses?: Array<{ id: string; name: string; input?: unknown; badInput?: string }>;
   usage?: { input_tokens: number; output_tokens: number };
 };
+
+// Minimal valid 1x1 PNG used by multimodal tests.
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNAAQEAAAABIwD+V9twAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 let mockStreamConfigs: MockStreamConfig[] = [];
 let streamCallIndex = 0;
@@ -169,6 +176,49 @@ describe("agent loop end-to-end", () => {
     expect(events.some((e) => e.type === "run.completed")).toBe(true);
     expect(events.some((e) => e.type === "turn.started")).toBe(true);
     expect(events.some((e) => e.type === "output.delta" && "text" in e && e.text === "Hello! How can I help you today?")).toBe(true);
+  });
+
+  test("accepts a content-block prompt (multimodal user input)", async () => {
+    mockStreamConfigs = [{ text: "I see the image." }];
+    const promptBlocks: ContentBlockParam[] = [
+      { type: "text", text: "describe this" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_1X1.toString("base64") } },
+    ];
+
+    const opts = await createOptions({ prompt: promptBlocks });
+    await runAgent(opts);
+
+    const first = (streamParams[0] as { messages: Array<{ role: string; content: unknown }> }).messages[0];
+    expect(first.role).toBe("user");
+    expect(first.content).toEqual(promptBlocks);
+  });
+
+  test("image tool results are previewed with a placeholder and fed back as blocks", async () => {
+    mockStreamConfigs = [
+      { toolUses: [{ id: "tool_1", name: "read_file", input: { path: "shot.png" } }] },
+      { text: "Described the image." },
+    ];
+
+    const opts = await createOptions();
+    await writeFile(join(opts.workspaceRoot, "shot.png"), PNG_1X1);
+    await runAgent(opts);
+
+    const events = getEvents(opts);
+    const finished = events.find((e): e is Extract<AgentEvent, { type: "tool.finished" }> => e.type === "tool.finished" && e.name === "read_file");
+    expect(finished?.contentPreview).toContain("[image: image/png]");
+
+    // The tool_result fed back into the conversation carries the image block.
+    // (streamParams stores a live array reference, so locate the tool_result
+    // message instead of assuming it is still the last one.)
+    const second = (streamParams[1] as { messages: Array<{ role: string; content: unknown }> }).messages;
+    const toolResultMessage = second.find(message =>
+      message.role === "user" && Array.isArray(message.content)
+      && (message.content as Array<{ type: string }>)[0]?.type === "tool_result",
+    ) as { role: string; content: Array<{ type: string; content: Array<Record<string, unknown>> }> };
+    expect(toolResultMessage).toBeDefined();
+    const image = toolResultMessage.content[0].content[1] as { type: string; source: { media_type: string } };
+    expect(image.type).toBe("image");
+    expect(image.source.media_type).toBe("image/png");
   });
 
   test("tool_use followed by final answer", async () => {

@@ -67,4 +67,59 @@ describe("readFileTool", () => {
 
     await expect(readFileTool.execute({ path: "missing.txt" }, ctx)).rejects.toThrow();
   });
+
+  // Minimal valid 1x1 PNG.
+  const PNG_1X1 = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNAAQEAAAABIwD+V9twAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  test("returns image content blocks for a PNG file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hancode-read-"));
+    await writeFile(join(root, "shot.png"), PNG_1X1);
+    const ctx = await createContext(root);
+
+    const result = await readFileTool.execute({ path: "shot.png" }, ctx);
+
+    expect(Array.isArray(result.content)).toBe(true);
+    const blocks = result.content as unknown as Array<Record<string, unknown>>;
+    expect(blocks.length).toBe(2);
+    expect(blocks[0].type).toBe("text");
+    const image = blocks[1] as { type: string; source: { type: string; media_type: string; data: string } };
+    expect(image.type).toBe("image");
+    expect(image.source.type).toBe("base64");
+    expect(image.source.media_type).toBe("image/png");
+    expect(image.source.data).toBe(PNG_1X1.toString("base64"));
+    // images never register readState (edit_file works on utf8 text only)
+    expect(ctx.readState.size).toBe(0);
+  });
+
+  test("recognizes uppercase .JPG extension", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hancode-read-"));
+    await writeFile(join(root, "photo.JPG"), PNG_1X1);
+    const ctx = await createContext(root);
+
+    const result = await readFileTool.execute({ path: "photo.JPG" }, ctx);
+
+    const blocks = result.content as unknown as Array<Record<string, unknown>>;
+    const image = blocks[1] as { source: { media_type: string } };
+    expect(image.source.media_type).toBe("image/jpeg");
+  });
+
+  test("rejects offset/limit for image files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hancode-read-"));
+    await writeFile(join(root, "shot.png"), PNG_1X1);
+    const ctx = await createContext(root);
+
+    await expect(readFileTool.execute({ path: "shot.png", offset: 0 }, ctx)).rejects.toThrow("not supported for image");
+  });
+
+  test("rejects images above the size limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hancode-read-"));
+    // >4MB of fake PNG data (extension is what routes it to the image branch).
+    await writeFile(join(root, "big.png"), Buffer.alloc(4_000_001, 1));
+    const ctx = await createContext(root);
+
+    await expect(readFileTool.execute({ path: "big.png" }, ctx)).rejects.toThrow("too large");
+  });
 });

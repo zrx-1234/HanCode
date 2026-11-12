@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { ImageBlockParam, MessageParam, TextBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { WebConfig } from "../config";
 import type { SkillRegistry } from "../skills/registry";
 
@@ -122,8 +122,14 @@ export type ToolContext = {
   trustedDirs?: string[];
 };
 
+/**
+ * Content returned by a tool: plain text, or text/image content blocks for
+ * multimodal results (the API's tool_result.content accepts only these kinds).
+ */
+export type ToolResultContent = string | Array<TextBlockParam | ImageBlockParam>;
+
 export type ToolExecutionResult = {
-  content: string;
+  content: ToolResultContent;
   isError?: boolean;
 };
 

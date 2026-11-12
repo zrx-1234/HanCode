@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
+import type { ContentBlockParam, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages/messages";
 import type { EffortConfig, WebConfig } from "../config";
 import { JsonlAuditLogger } from "../security/auditLog";
 import { confirmInTerminal } from "../security/confirmation";
@@ -10,14 +10,15 @@ import { addUsage, createUsageTotals, mergeUsage } from "./usage";
 import { buildThinkingParam } from "./thinking";
 import type { ThinkingMode } from "./thinking";
 import { createAgentSession } from "./types";
-import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, UsageTotals } from "./types";
+import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, ToolResultContent, UsageTotals } from "./types";
 
 const RECENT_TOOL_CALL_WINDOW = 20;
 const REPEATED_TOOL_CALL_LIMIT = 1;
 
 /** Options for running an agent. */
 export type RunAgentOptions = {
-  prompt: string;
+  /** Plain text, or content blocks (text + image) for multimodal user input. */
+  prompt: string | ContentBlockParam[];
   workspaceRoot: string;
   apiKey: string;
   model: string;
@@ -426,9 +427,18 @@ async function emitUsage(options: RunAgentOptions, taskId: string, taskUsage: Us
   });
 }
 
-function preview(content: string, maxLength = 4_000): string {
-  if (content.length <= maxLength) return content;
-  return `${content.slice(0, maxLength)}\n\n[preview truncated]`;
+function preview(content: ToolResultContent, maxLength = 4_000): string {
+  const text = typeof content === "string"
+    ? content
+    : content
+        .map(block => {
+          if (block.type === "text") return block.text;
+          const source = block.source as { media_type?: string };
+          return `[image: ${source.media_type ?? "unknown"}]`;
+        })
+        .join("\n");
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n\n[preview truncated]`;
 }
 
 function toolCallSignature(name: string, input: unknown): string {

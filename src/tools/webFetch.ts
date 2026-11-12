@@ -1,4 +1,6 @@
 import type { WebConfig } from "../config";
+import { buildImageContentBlocks, contentTypeToMediaType, MAX_IMAGE_BYTES } from "./images";
+import type { ToolResultContentBlock } from "./images";
 import { limitOutput } from "../security/outputLimit";
 import { redactWebSecrets, resolveSafeWebUrl, sameEffectiveHost } from "../security/webPolicy";
 import type { HanCodeTool } from "../agent/types";
@@ -6,7 +8,7 @@ import { webFetchInput } from "./schemas";
 
 type CacheEntry = {
   expiresAt: number;
-  content: string;
+  content: string | Array<ToolResultContentBlock>;
 };
 
 const cache = new Map<string, CacheEntry>();
@@ -15,7 +17,7 @@ const MAX_REDIRECTS = 5;
 export const webFetchTool: HanCodeTool = {
   definition: {
     name: "web_fetch",
-    description: "Fetch a public HTTP/HTTPS URL and return readable text. Public web only: no authentication, cookies, custom headers, private network, or JavaScript rendering.",
+    description: "Fetch a public HTTP/HTTPS URL and return readable text. Image URLs (png/jpg/webp/gif) are returned as image blocks. Public web only: no authentication, cookies, custom headers, private network, or JavaScript rendering.",
     strict: true,
     input_schema: {
       type: "object",
@@ -40,7 +42,8 @@ export const webFetchTool: HanCodeTool = {
         ? await fetchWithTavily(safe.normalizedUrl, ctx.web, ctx.signal, maxChars)
         : await fetchWithHttp(safe.normalizedUrl, ctx.web, ctx.signal, maxChars);
       const focus = parsed.prompt ? `Focus instruction: ${parsed.prompt}\n\n` : "";
-      return { content: focus + content };
+      if (typeof content === "string") return { content: focus + content };
+      return { content: focus ? [{ type: "text" as const, text: focus }, ...content] : content };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: redactWebSecrets(message, ctx.web), isError: true };
@@ -65,12 +68,27 @@ export function htmlToText(html: string): { title?: string; text: string } {
   return { title: title ? decodeHtmlEntities(stripTags(title)).trim() : undefined, text };
 }
 
-async function fetchWithHttp(url: string, config: WebConfig, signal: AbortSignal, maxChars: number): Promise<string> {
+async function fetchWithHttp(url: string, config: WebConfig, signal: AbortSignal, maxChars: number): Promise<string | Array<ToolResultContentBlock>> {
   const cached = getCached(url);
   if (cached) return cached;
 
   const result = await fetchFollowingSafeRedirects(url, config, signal);
   const contentType = result.response.headers.get("content-type") ?? "";
+
+  // Image responses are returned as image content blocks instead of mangled text.
+  // They bypass the text maxBytes cap but are bounded by the image size limit.
+  const mediaType = contentTypeToMediaType(contentType);
+  if (mediaType) {
+    const bytes = await readResponseBytes(result.response, MAX_IMAGE_BYTES);
+    const blocks = buildImageContentBlocks({
+      label: `Image fetched from ${url} (${bytes.length} bytes, ${mediaType}).`,
+      bytes,
+      mediaType,
+    });
+    setCached(url, blocks, config.fetch.cacheTtlMs);
+    return blocks;
+  }
+
   const raw = await readResponseText(result.response, config.fetch.maxBytes);
   const extracted = contentType.toLowerCase().includes("html") ? htmlToText(raw) : { text: raw.trim(), title: undefined };
   const content = formatFetchResult({
@@ -154,8 +172,13 @@ async function fetchFollowingSafeRedirects(url: string, config: WebConfig, signa
 }
 
 async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+  return new TextDecoder().decode(await readResponseBytes(response, maxBytes));
+}
+
+/** Streams the response body as bytes, enforcing a hard size cap. */
+async function readResponseBytes(response: Response, maxBytes: number): Promise<Buffer> {
   const reader = response.body?.getReader();
-  if (!reader) return await response.text();
+  if (!reader) return Buffer.from(await response.arrayBuffer());
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
@@ -169,7 +192,7 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
     }
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return Buffer.concat(chunks);
 }
 
 function formatFetchResult(input: { requestedUrl: string; finalUrl: string; status: number; contentType: string; title?: string; body: string }): string {
@@ -185,7 +208,7 @@ function formatFetchResult(input: { requestedUrl: string; finalUrl: string; stat
   ].filter(line => line !== undefined).join("\n");
 }
 
-function getCached(url: string): string | undefined {
+function getCached(url: string): string | Array<ToolResultContentBlock> | undefined {
   const entry = cache.get(url);
   if (!entry) return undefined;
   if (entry.expiresAt <= Date.now()) {
@@ -195,7 +218,7 @@ function getCached(url: string): string | undefined {
   return entry.content;
 }
 
-function setCached(url: string, content: string, ttlMs: number): void {
+function setCached(url: string, content: string | Array<ToolResultContentBlock>, ttlMs: number): void {
   cache.set(url, { content, expiresAt: Date.now() + ttlMs });
 }
 

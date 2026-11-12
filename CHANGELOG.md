@@ -9,6 +9,11 @@
 
 ### 新增
 
+- **多模态（视觉）能力**：模型现在可以「看见」图片，覆盖四个场景：
+  - `read_file` 读取 workspace 内的 PNG/JPEG/WebP/GIF 文件时以 Anthropic image
+    内容块返回（不写 readState，不支持 offset/limit）。
+  - `web_fetch` 抓到图片 URL（`image/*` content-type）时返回 image 内容块而非乱码
+    文本，同样享受 TTL 缓存（上限 4MB）。
 - **Desktop 编辑配置文件快捷按钮**：顶栏新增 **编辑配置文件 / Edit config
   file** 图标按钮，点击用系统默认编辑器打开当前生效的 `hancode.config.json`
   （开发态为项目根的，打包态为 userData 的），方便快速修改表单未覆盖的

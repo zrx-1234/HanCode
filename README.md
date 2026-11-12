@@ -8,7 +8,7 @@ HanCode 是一个 Coding Agent，使用 Bun + TypeScript + Anthropic Claude API 
 
 | 工具 | 作用 |
 |---|---|
-| `read_file` | 读取 workspace 内文本文件 |
+| `read_file` | 读取 workspace 内文本文件；图片（PNG/JPEG/WebP/GIF）以 image 内容块返回，模型可直接「看见」 |
 | `list_files` | 使用 glob 风格模式查找文件 |
 | `search_text` | 使用正则搜索代码文本 |
 | `edit_file` | 对已读取文件执行一次精确替换 |
@@ -16,7 +16,7 @@ HanCode 是一个 Coding Agent，使用 Bun + TypeScript + Anthropic Claude API 
 | `run_command` | 使用 argv 风格运行受策略限制的测试、git、构建命令 |
 | `bash` | 运行 Bash 命令字符串；安全命令自动执行，危险/未知命令需确认 |
 | `web_search` | 联网检索公开网页，返回标题、URL 和摘要；需要启用 web 并配置搜索 API Key |
-| `web_fetch` | 抓取公开 HTTP/HTTPS URL 并提取可读文本；不支持认证、Cookie 或 JavaScript 渲染 |
+| `web_fetch` | 抓取公开 HTTP/HTTPS URL 并提取可读文本；图片 URL 以 image 内容块返回；不支持认证、Cookie 或 JavaScript 渲染 |
 
 ## 使用场景
 
