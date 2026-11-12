@@ -62,9 +62,27 @@ type ConfigDraft = {
 };
 
 type ConversationMessage =
-  | { id: string; taskId: string; role: "user"; text: string }
+  | { id: string; taskId: string; role: "user"; text: string; images?: string[] }
   | { id: string; taskId: string; role: "assistant"; text: string; thinking: string; thinkingOpen: boolean; status: "streaming" | "done" | "error" | "stopped"; taskStartMs?: number; taskEndMs?: number | null }
   | { id: string; taskId: string; role: "system"; kind: "compacted"; removedMessages?: number };
+
+/** Image attached to the composer: bare base64 payload plus its media type. */
+type Attachment = { id: string; name: string; mediaType: string; data: string };
+
+const SUPPORTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const MAX_ATTACHMENTS = 6;
+const MAX_ATTACHMENT_BYTES = 4_000_000;
+
+/** Chunked base64 encoding so large images do not blow the argument limit. */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 const emptyUsage: UsageTotals = {
   inputTokens: 0,
@@ -83,17 +101,28 @@ function historyToMessages(history: HistoryMessage[] | undefined): ConversationM
   const out: ConversationMessage[] = [];
   for (const [index, message] of history.entries()) {
     if (message.role === "user") {
+      const blocks = Array.isArray(message.content) ? message.content : [];
       const text = typeof message.content === "string"
         ? message.content
-        : message.content.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
-      if (!text || text.startsWith("[HanCode system reminder]")) continue;
+        : blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
+      // Attached images become data URLs so restored bubbles show thumbnails.
+      const images = typeof message.content === "string"
+        ? []
+        : blocks
+            .filter(block => block.type === "image")
+            .map(block => {
+              const source = (block as { source?: { media_type?: string; data?: string } }).source;
+              return source?.data ? `data:${source.media_type};base64,${source.data}` : undefined;
+            })
+            .filter((url): url is string => url !== undefined);
       // Compaction replaced older history with a summary marker — render it as
       // a divider instead of a fake user bubble.
       if (text.startsWith("[HanCode compacted context]")) {
         out.push({ id: `history-${index}`, taskId: "history", role: "system", kind: "compacted" });
         continue;
       }
-      out.push({ id: `history-${index}`, taskId: "history", role: "user", text });
+      if ((!text || text.startsWith("[HanCode system reminder]")) && images.length === 0) continue;
+      out.push({ id: `history-${index}`, taskId: "history", role: "user", text, images: images.length > 0 ? images : undefined });
     } else {
       const blocks = Array.isArray(message.content) ? message.content : [];
       const text = blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join("");
@@ -159,6 +188,11 @@ const dictionary = {
     cancel: "取消",
     webToggle: "启用联网（web_search / web_fetch）",
     saveFailed: "保存失败",
+    attachHint: "粘贴或拖入图片（PNG/JPEG/WebP/GIF，最多 6 张，单张 ≤ 4MB）",
+    removeAttachment: "移除图片",
+    attachTooMany: "最多只能附 6 张图片",
+    attachTooLarge: "图片过大（单张最多 4MB）",
+    attachUnsupported: "仅支持 PNG / JPEG / WebP / GIF 图片",
   },
   en: {
     selectWorkspace: "Select a workspace to begin",
@@ -213,6 +247,11 @@ const dictionary = {
     cancel: "Cancel",
     webToggle: "Enable web tools (web_search / web_fetch)",
     saveFailed: "Save failed",
+    attachHint: "Paste or drop images (PNG/JPEG/WebP/GIF, up to 6, each ≤ 4MB)",
+    removeAttachment: "Remove image",
+    attachTooMany: "Too many images (max 6)",
+    attachTooLarge: "Image too large (max 4MB each)",
+    attachUnsupported: "Only PNG / JPEG / WebP / GIF images are supported",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -220,6 +259,7 @@ export default function App() {
   const [workspacePath, setWorkspacePath] = useState("");
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [subAgents, setSubAgents] = useState<SubAgentItem[]>([]);
@@ -289,7 +329,7 @@ export default function App() {
     stickToBottomRef.current = distanceFromBottom < 80;
   }
 
-  const canRun = useMemo(() => Boolean(workspaceInfo && prompt.trim() && status !== "running" && status !== "stopping"), [workspaceInfo, prompt, status]);
+  const canRun = useMemo(() => Boolean(workspaceInfo && (prompt.trim() || attachments.length > 0) && status !== "running" && status !== "stopping"), [workspaceInfo, prompt, attachments, status]);
 
   async function pickWorkspace() {
     const picked = await window.hancode.pickWorkspace();
@@ -336,7 +376,8 @@ export default function App() {
   async function startTask() {
     if (!canRun) return;
     const text = prompt.trim();
-    if (!text) return;
+    const images = attachments.map(({ mediaType, data }) => ({ mediaType, data }));
+    if (!text && images.length === 0) return;
     setTools([]);
     setSubAgents([]);
     setTaskUsage(emptyUsage);
@@ -346,18 +387,60 @@ export default function App() {
     // New task: fold previous conversation back behind the history banner.
     setHistoryExpanded(false);
     try {
-      const result = await window.hancode.startTask(text);
+      const result = await window.hancode.startTask(text, images.length > 0 ? images : undefined);
       setTaskId(result.taskId);
+      const dataUrls = attachments.map(({ mediaType, data }) => `data:${mediaType};base64,${data}`);
       setMessages(items => [
         ...items,
-        { id: `${result.taskId}-user`, taskId: result.taskId, role: "user", text },
+        { id: `${result.taskId}-user`, taskId: result.taskId, role: "user", text, images: dataUrls.length > 0 ? dataUrls : undefined },
         { id: `${result.taskId}-assistant`, taskId: result.taskId, role: "assistant", text: "", thinking: "", thinkingOpen: false, status: "streaming", taskStartMs: Date.now() },
       ]);
       setPrompt("");
+      setAttachments([]);
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** Turns pasted/dropped image files into composer attachments (validated). */
+  async function addImageFiles(files: File[]) {
+    let added = 0;
+    for (const file of files) {
+      if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+        setError(`${t("attachUnsupported")}: ${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setError(`${t("attachTooLarge")}: ${file.name}`);
+        continue;
+      }
+      if (attachments.length + added >= MAX_ATTACHMENTS) {
+        setError(t("attachTooMany"));
+        break;
+      }
+      const data = arrayBufferToBase64(await file.arrayBuffer());
+      setAttachments(items => [...items, { id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`, name: file.name, mediaType: file.type, data }]);
+      added += 1;
+    }
+  }
+
+  function handleComposerPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (files.length === 0) return; // plain-text paste falls through untouched
+    event.preventDefault();
+    void addImageFiles(files);
+  }
+
+  function handleChatPanelDrop(event: React.DragEvent<HTMLElement>) {
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(files);
+  }
+
+  function handleChatPanelDragOver(event: React.DragEvent<HTMLElement>) {
+    if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) event.preventDefault();
   }
 
   async function stopTask() {
@@ -623,7 +706,7 @@ export default function App() {
       {error && <section className="error-banner">{error}</section>}
 
       <section className="main-grid">
-        <section className="chat-panel">
+        <section className="chat-panel" onDrop={handleChatPanelDrop} onDragOver={handleChatPanelDragOver}>
           <div className="conversation-box" ref={conversationBoxRef} onScroll={handleConversationScroll}>
             {messages.length === 0 && <span className="placeholder">{t("emptyChat")}</span>}
             {foldIndex > 0 && (
@@ -635,7 +718,31 @@ export default function App() {
             <div ref={conversationEndRef} />
           </div>
           <div className="composer">
-            <textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={handlePromptKeyDown} placeholder={t("askPlaceholder")} />
+            {attachments.length > 0 && (
+              <div className="attachment-strip">
+                {attachments.map(attachment => (
+                  <span key={attachment.id} className="attachment-chip" title={attachment.name}>
+                    <img src={`data:${attachment.mediaType};base64,${attachment.data}`} alt={attachment.name} />
+                    <button
+                      className="attachment-remove"
+                      onClick={() => setAttachments(items => items.filter(item => item.id !== attachment.id))}
+                      title={t("removeAttachment")}
+                      aria-label={t("removeAttachment")}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <span className="attachment-hint">{t("attachHint")}</span>
+              </div>
+            )}
+            <textarea
+              value={prompt}
+              onChange={event => setPrompt(event.target.value)}
+              onKeyDown={handlePromptKeyDown}
+              onPaste={handleComposerPaste}
+              placeholder={t("askPlaceholder")}
+            />
             <div className="composer-footer">
               <span className="composer-meta">
                 {workspaceInfo && `${workspaceInfo.model} · ${t("effort")} ${workspaceInfo.effort} · ${t("maxTurns")} ${workspaceInfo.maxTurns} · ${t("web")} ${workspaceInfo.webEnabled ? t("enabled") : t("disabled")}`}
@@ -808,7 +915,18 @@ const ConversationBubble = memo(function ConversationBubble({ message, t, onTogg
       : t("contextCompactedNoCount");
     return <div className="context-divider">{text}</div>;
   }
-  if (message.role === "user") return <article className="message-bubble user"><div>{message.text}</div></article>;
+  if (message.role === "user") {
+    return (
+      <article className="message-bubble user">
+        {message.text && <div>{message.text}</div>}
+        {message.images && message.images.length > 0 && (
+          <div className="bubble-images">
+            {message.images.map((url, index) => <img key={index} src={url} alt="" />)}
+          </div>
+        )}
+      </article>
+    );
+  }
   return <AssistantBubble message={message} t={t} onToggleThinking={onToggleThinking} />;
 });
 

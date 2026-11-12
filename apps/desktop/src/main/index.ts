@@ -83,9 +83,9 @@ function registerIpc(): void {
     await shell.openPath(workspacePath);
   });
 
-  ipcMain.handle("task:start", async (_event, prompt: string) => {
+  ipcMain.handle("task:start", async (_event, prompt: string, images?: Array<{ mediaType: string; data: string }>) => {
     const taskId = `desktop-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    await sidecar.startTask(taskId, prompt);
+    await sidecar.startTask(taskId, prompt, images);
     return { taskId };
   });
 

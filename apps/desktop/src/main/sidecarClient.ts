@@ -39,8 +39,8 @@ export class SidecarClient {
     return await this.request({ type: "workspace.open", workspacePath });
   }
 
-  async startTask(taskId: string, prompt: string): Promise<unknown> {
-    return await this.request({ type: "task.start", taskId, prompt });
+  async startTask(taskId: string, prompt: string, images?: Array<{ mediaType: string; data: string }>): Promise<unknown> {
+    return await this.request({ type: "task.start", taskId, prompt, images });
   }
 
   async stopTask(taskId: string): Promise<unknown> {

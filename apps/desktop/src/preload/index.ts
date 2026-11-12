@@ -5,7 +5,7 @@ export type HanCodeDesktopApi = {
   pickWorkspace(): Promise<string | null>;
   openWorkspace(path: string): Promise<unknown>;
   showWorkspaceInFolder(path: string): Promise<void>;
-  startTask(prompt: string): Promise<{ taskId: string }>;
+  startTask(prompt: string, images?: Array<{ mediaType: string; data: string }>): Promise<{ taskId: string }>;
   stopTask(taskId: string): Promise<void>;
   clearSession(): Promise<unknown>;
   respondConfirmation(confirmationId: string, allowed: boolean): Promise<void>;
@@ -21,7 +21,7 @@ const api: HanCodeDesktopApi = {
   pickWorkspace: () => ipcRenderer.invoke("workspace:pick"),
   openWorkspace: path => ipcRenderer.invoke("workspace:open", path),
   showWorkspaceInFolder: path => ipcRenderer.invoke("workspace:show-in-folder", path),
-  startTask: prompt => ipcRenderer.invoke("task:start", prompt),
+  startTask: (prompt, images) => ipcRenderer.invoke("task:start", prompt, images),
   stopTask: taskId => ipcRenderer.invoke("task:stop", taskId),
   clearSession: () => ipcRenderer.invoke("session:clear"),
   respondConfirmation: (confirmationId, allowed) => ipcRenderer.invoke("confirmation:respond", confirmationId, allowed),

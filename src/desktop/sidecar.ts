@@ -6,13 +6,15 @@ import { runAgent } from "../agent/loop";
 import { createAgentSession } from "../agent/types";
 import type { AgentEvent, AgentSession, ConfirmationRequest, PermissionMode } from "../agent/types";
 import { getConfigPath, loadConfig, readRawConfig, writeConfig } from "../config";
+import { buildUserContent } from "./sidecarContent";
+import type { ImageAttachment } from "./sidecarContent";
 import { clearSessionHistory, loadSessionHistory, saveSessionHistory } from "../sessionHistory";
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 type SidecarCommand =
   | { id: string; type: "workspace.open"; workspacePath: string }
-  | { id: string; type: "task.start"; taskId: string; prompt: string }
+  | { id: string; type: "task.start"; taskId: string; prompt: string; images?: ImageAttachment[] }
   | { id: string; type: "task.stop"; taskId: string }
   | { id: string; type: "session.clear" }
   | { id: string; type: "confirmation.respond"; confirmationId: string; allowed: boolean }
@@ -70,10 +72,13 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
       case "task.start": {
         if (!workspace) throw new Error("Open a workspace before starting a task.");
         if (activeTask) throw new Error("A task is already running.");
+        // Validate attachments up front so bad input fails this command
+        // (error response to the UI) instead of surfacing as a mid-task error.
+        const content = buildUserContent(command.prompt, command.images);
         const controller = new AbortController();
         activeTask = { taskId: command.taskId, controller };
         sendResponse(command.id, true, { taskId: command.taskId });
-        runTask(command.taskId, command.prompt, controller).catch(error => {
+        runTask(command.taskId, content, controller).catch(error => {
           sendEvent({ type: "run.error", taskId: command.taskId, message: errorToMessage(error) });
         });
         return;
@@ -155,7 +160,7 @@ function workspaceInfo(state: WorkspaceState) {
   };
 }
 
-async function runTask(taskId: string, prompt: string, controller: AbortController): Promise<void> {
+async function runTask(taskId: string, prompt: string | ReturnType<typeof buildUserContent>, controller: AbortController): Promise<void> {
   if (!workspace) throw new Error("Workspace is not open.");
   const current = workspace;
   try {
