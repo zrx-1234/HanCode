@@ -126,9 +126,27 @@ export function resolveWorkspaceRoot(workspacePath: string): string {
   return real;
 }
 
-/** Path of `hancode.config.json` (see getAppRoot for how the directory is chosen). */
+/** Path of `hancode.config.json` (see getConfigDir for how the directory is chosen). */
 export function getConfigPath(): string {
-  return join(getAppRoot(), "hancode.config.json");
+  return join(getConfigDir(), "hancode.config.json");
+}
+
+/**
+ * Directory that holds `hancode.config.json` (and the `profiles/` folder).
+ *
+ * Normally the project root (resolved relative to this source file). When the
+ * sidecar is compiled into a standalone executable (`bun build --compile`),
+ * `import.meta.url` points into the virtual bunfs filesystem, so the desktop
+ * app passes the real directory (Electron's userData) via HANCODE_CONFIG_DIR.
+ */
+export function getConfigDir(): string {
+  if (process.env.HANCODE_CONFIG_DIR) return resolve(process.env.HANCODE_CONFIG_DIR);
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+/** Validates a raw config object without writing it (used for profile files). */
+export function validateConfigObject(value: Record<string, unknown>): void {
+  validateConfigFile(value as ConfigFile);
 }
 
 /**
@@ -148,7 +166,7 @@ export function readRawConfig(): Record<string, unknown> {
  * fields are validated by the same parser loadConfig uses.
  */
 export function writeConfig(value: Record<string, unknown>): void {
-  validateConfigFile(value as ConfigFile);
+  validateConfigObject(value);
   writeFileSync(getConfigPath(), `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
@@ -268,17 +286,4 @@ function validatePositiveInteger(value: unknown, name: string): void {
   if (!Number.isInteger(value) || (value as number) <= 0) {
     throw new Error(`hancode.config.json: ${name} must be a positive integer.`);
   }
-}
-
-/**
- * Directory that holds `hancode.config.json`.
- *
- * Normally the project root (resolved relative to this source file). When the
- * sidecar is compiled into a standalone executable (`bun build --compile`),
- * `import.meta.url` points into the virtual bunfs filesystem, so the desktop
- * app passes the real directory (Electron's userData) via HANCODE_CONFIG_DIR.
- */
-function getAppRoot(): string {
-  if (process.env.HANCODE_CONFIG_DIR) return resolve(process.env.HANCODE_CONFIG_DIR);
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
