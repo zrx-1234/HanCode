@@ -109,6 +109,22 @@ function registerIpc(): void {
     return await sidecar.updateConfig(config);
   });
 
+  ipcMain.handle("profiles:list", async () => {
+    return await sidecar.listProfiles();
+  });
+
+  ipcMain.handle("profiles:save", async (_event, name: string, config: Record<string, unknown>) => {
+    return await sidecar.saveProfile(name, config);
+  });
+
+  ipcMain.handle("profiles:delete", async (_event, name: string) => {
+    return await sidecar.deleteProfile(name);
+  });
+
+  ipcMain.handle("profiles:activate", async (_event, name: string) => {
+    return await sidecar.activateProfile(name);
+  });
+
   // Opens the active hancode.config.json in the system's default editor.
   ipcMain.handle("config:open-file", async () => {
     const { path } = await sidecar.getConfig();

@@ -67,6 +67,22 @@ export class SidecarClient {
     return await this.request({ type: "config.update", config });
   }
 
+  async listProfiles(): Promise<{ profiles: Array<{ name: string; active: boolean }> }> {
+    return await this.request({ type: "profiles.list" }) as { profiles: Array<{ name: string; active: boolean }> };
+  }
+
+  async saveProfile(name: string, config: Record<string, unknown>): Promise<unknown> {
+    return await this.request({ type: "profiles.save", name, config });
+  }
+
+  async deleteProfile(name: string): Promise<unknown> {
+    return await this.request({ type: "profiles.delete", name });
+  }
+
+  async activateProfile(name: string): Promise<unknown> {
+    return await this.request({ type: "profiles.activate", name });
+  }
+
   dispose(): void {
     this.child?.kill();
     this.child = undefined;

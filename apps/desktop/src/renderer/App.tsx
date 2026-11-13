@@ -59,7 +59,12 @@ type ConfigDraft = {
   effort: string;
   thinkingMode: string;
   webEnabled: boolean;
+  visionModel: string;
+  visionBaseURL: string;
+  visionApiKey: string;
 };
+
+type ProfileSummary = { name: string; active: boolean };
 
 type ConversationMessage =
   | { id: string; taskId: string; role: "user"; text: string; images?: string[] }
@@ -184,10 +189,22 @@ const dictionary = {
     apiKey: "API Key",
     modelLabel: "模型",
     baseURL: "Base URL",
+    visionModel: "视觉模型",
+    visionBaseURL: "视觉模型 Base URL",
+    visionApiKey: "视觉模型 API Key",
+    visionHint: "Base URL / API Key 留空则沿用主配置；视觉模型留空时图片请求仍走主模型。",
     save: "保存",
     cancel: "取消",
     webToggle: "启用联网（web_search / web_fetch）",
     saveFailed: "保存失败",
+    profileSection: "配置方案",
+    profileDefault: "默认（当前配置文件）",
+    profileSaveAs: "另存为方案",
+    profileSaveAsConfirm: "保存并切换",
+    profileSaveAsPlaceholder: "新方案名称",
+    profileDelete: "删除",
+    sidePanelCollapse: "收起信息栏",
+    sidePanelExpand: "展开信息栏",
     attachHint: "粘贴或拖入图片（PNG/JPEG/WebP/GIF，最多 6 张，单张 ≤ 4MB）",
     removeAttachment: "移除图片",
     attachTooMany: "最多只能附 6 张图片",
@@ -243,10 +260,22 @@ const dictionary = {
     apiKey: "API Key",
     modelLabel: "Model",
     baseURL: "Base URL",
+    visionModel: "Vision model",
+    visionBaseURL: "Vision base URL",
+    visionApiKey: "Vision API key",
+    visionHint: "Leave base URL / API key blank to reuse the main settings; an empty vision model keeps image requests on the main model.",
     save: "Save",
     cancel: "Cancel",
     webToggle: "Enable web tools (web_search / web_fetch)",
     saveFailed: "Save failed",
+    profileSection: "Profiles",
+    profileDefault: "Default (current config file)",
+    profileSaveAs: "Save as profile",
+    profileSaveAsConfirm: "Save & switch",
+    profileSaveAsPlaceholder: "New profile name",
+    profileDelete: "Delete",
+    sidePanelCollapse: "Hide info panel",
+    sidePanelExpand: "Show info panel",
     attachHint: "Paste or drop images (PNG/JPEG/WebP/GIF, up to 6, each ≤ 4MB)",
     removeAttachment: "Remove image",
     attachTooMany: "Too many images (max 6)",
@@ -276,6 +305,11 @@ export default function App() {
   const [settingsDraft, setSettingsDraft] = useState<ConfigDraft | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [settingsPath, setSettingsPath] = useState("");
+  const [sidePanelOpen, setSidePanelOpen] = useState(() => localStorage.getItem("hancode.sidePanel") !== "collapsed");
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  const [activeProfile, setActiveProfile] = useState("default");
+  const [profileSaveAsName, setProfileSaveAsName] = useState("");
+  const [profileSaveAsOpen, setProfileSaveAsOpen] = useState(false);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const conversationBoxRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -299,6 +333,10 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("hancode.theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("hancode.sidePanel", sidePanelOpen ? "open" : "collapsed");
+  }, [sidePanelOpen]);
 
   useEffect(() => {
     localStorage.setItem("hancode.permissionMode", permissionMode);
@@ -472,20 +510,64 @@ export default function App() {
     setConfirmation(null);
   }
 
+  /** Builds a settings draft from the raw config object. */
+  function draftFromConfig(config: Record<string, unknown>): ConfigDraft {
+    const vision = config.vision as { model?: unknown; baseURL?: unknown; apiKey?: unknown } | undefined;
+    return {
+      apiKey: typeof config.apiKey === "string" ? config.apiKey : "",
+      model: typeof config.model === "string" ? config.model : "",
+      baseURL: typeof config.baseURL === "string" ? config.baseURL : "",
+      maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
+      effort: typeof config.effort === "string" ? config.effort : "auto",
+      thinkingMode: typeof config.thinkingMode === "string" ? config.thinkingMode : "auto",
+      webEnabled: Boolean((config.web as { enabled?: boolean } | undefined)?.enabled),
+      visionModel: typeof vision?.model === "string" ? vision.model : "",
+      visionBaseURL: typeof vision?.baseURL === "string" ? vision.baseURL : "",
+      visionApiKey: typeof vision?.apiKey === "string" ? vision.apiKey : "",
+    };
+  }
+
+  /** Merges the edited draft into the raw config object (preserving unknown fields). */
+  function buildNextConfig(config: Record<string, unknown>, draft: ConfigDraft): Record<string, unknown> {
+    const next = { ...config };
+    if (draft.apiKey.trim()) next.apiKey = draft.apiKey.trim();
+    else delete next.apiKey;
+    if (draft.model.trim()) next.model = draft.model.trim();
+    else delete next.model;
+    if (draft.baseURL.trim()) next.baseURL = draft.baseURL.trim();
+    else delete next.baseURL;
+    const maxTurns = Number(draft.maxTurns);
+    if (draft.maxTurns.trim() !== "" && Number.isInteger(maxTurns) && maxTurns > 0) next.maxTurns = maxTurns;
+    else delete next.maxTurns;
+    if (draft.effort !== "auto") next.effort = draft.effort;
+    else delete next.effort;
+    if (draft.thinkingMode !== "auto") next.thinkingMode = draft.thinkingMode;
+    else delete next.thinkingMode;
+    next.web = { ...(next.web as object | undefined), enabled: draft.webEnabled };
+    // Vision section: an empty vision model removes routing entirely; blank
+    // baseURL/apiKey keys are omitted so config.ts falls back to the main values.
+    const visionModel = draft.visionModel.trim();
+    if (visionModel) {
+      const vision: Record<string, unknown> = { model: visionModel };
+      if (draft.visionBaseURL.trim()) vision.baseURL = draft.visionBaseURL.trim();
+      if (draft.visionApiKey.trim()) vision.apiKey = draft.visionApiKey.trim();
+      next.vision = vision;
+    } else {
+      delete next.vision;
+    }
+    return next;
+  }
+
   async function openSettings() {
     setSettingsError("");
+    setProfileSaveAsOpen(false);
+    setProfileSaveAsName("");
     try {
-      const { path, config } = await window.hancode.getConfig();
+      const [{ path, config }, { profiles: list }] = await Promise.all([window.hancode.getConfig(), window.hancode.listProfiles()]);
       setSettingsPath(path);
-      setSettingsDraft({
-        apiKey: typeof config.apiKey === "string" ? config.apiKey : "",
-        model: typeof config.model === "string" ? config.model : "",
-        baseURL: typeof config.baseURL === "string" ? config.baseURL : "",
-        maxTurns: typeof config.maxTurns === "number" ? String(config.maxTurns) : "",
-        effort: typeof config.effort === "string" ? config.effort : "auto",
-        thinkingMode: typeof config.thinkingMode === "string" ? config.thinkingMode : "auto",
-        webEnabled: Boolean((config.web as { enabled?: boolean } | undefined)?.enabled),
-      });
+      setSettingsDraft(draftFromConfig(config));
+      setProfiles(list);
+      setActiveProfile(list.find(profile => profile.active)?.name ?? "default");
       setSettingsOpen(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -497,25 +579,67 @@ export default function App() {
     setSettingsError("");
     try {
       const { path, config } = await window.hancode.getConfig();
-      const next = { ...config };
-      if (settingsDraft.apiKey.trim()) next.apiKey = settingsDraft.apiKey.trim();
-      else delete next.apiKey;
-      if (settingsDraft.model.trim()) next.model = settingsDraft.model.trim();
-      else delete next.model;
-      if (settingsDraft.baseURL.trim()) next.baseURL = settingsDraft.baseURL.trim();
-      else delete next.baseURL;
-      const maxTurns = Number(settingsDraft.maxTurns);
-      if (settingsDraft.maxTurns.trim() !== "" && Number.isInteger(maxTurns) && maxTurns > 0) next.maxTurns = maxTurns;
-      else delete next.maxTurns;
-      if (settingsDraft.effort !== "auto") next.effort = settingsDraft.effort;
-      else delete next.effort;
-      if (settingsDraft.thinkingMode !== "auto") next.thinkingMode = settingsDraft.thinkingMode;
-      else delete next.thinkingMode;
-      next.web = { ...(next.web as object | undefined), enabled: settingsDraft.webEnabled };
+      const next = buildNextConfig(config, settingsDraft);
       const result = await window.hancode.updateConfig(next);
       setSettingsPath(result.path);
       if (result.workspace) setWorkspaceInfo(result.workspace as WorkspaceInfo);
+      // Keep the active profile file in sync with the main config.
+      if (activeProfile !== "default") {
+        const profileResult = await window.hancode.saveProfile(activeProfile, next);
+        setProfiles(profileResult.profiles);
+        if (profileResult.workspace) setWorkspaceInfo(profileResult.workspace as WorkspaceInfo);
+      }
       setSettingsOpen(false);
+    } catch (err) {
+      setSettingsError(`${t("saveFailed")}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Activates another profile and refreshes the draft from the new config. */
+  async function switchProfile(name: string) {
+    if (name === activeProfile) return;
+    setSettingsError("");
+    try {
+      const result = await window.hancode.activateProfile(name);
+      setProfiles(result.profiles);
+      setActiveProfile(name);
+      setSettingsDraft(draftFromConfig(result.config));
+      if (result.workspace) setWorkspaceInfo(result.workspace as WorkspaceInfo);
+    } catch (err) {
+      setSettingsError(`${t("saveFailed")}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Saves the currently edited draft as a new profile and switches to it. */
+  async function saveAsProfile() {
+    if (!settingsDraft) return;
+    const name = profileSaveAsName.trim();
+    if (!name) return;
+    setSettingsError("");
+    try {
+      const { config } = await window.hancode.getConfig();
+      const next = buildNextConfig(config, settingsDraft);
+      await window.hancode.saveProfile(name, next);
+      const result = await window.hancode.activateProfile(name);
+      setProfiles(result.profiles);
+      setActiveProfile(name);
+      setSettingsDraft(draftFromConfig(result.config));
+      if (result.workspace) setWorkspaceInfo(result.workspace as WorkspaceInfo);
+      setProfileSaveAsName("");
+      setProfileSaveAsOpen(false);
+    } catch (err) {
+      setSettingsError(`${t("saveFailed")}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Deletes the active (non-default) profile and falls back to "default". */
+  async function removeProfile() {
+    if (activeProfile === "default") return;
+    setSettingsError("");
+    try {
+      const result = await window.hancode.deleteProfile(activeProfile);
+      setProfiles(result.profiles);
+      setActiveProfile("default");
     } catch (err) {
       setSettingsError(`${t("saveFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -705,7 +829,7 @@ export default function App() {
 
       {error && <section className="error-banner">{error}</section>}
 
-      <section className="main-grid">
+      <section className={`main-grid ${sidePanelOpen ? "" : "collapsed"}`}>
         <section className="chat-panel" onDrop={handleChatPanelDrop} onDragOver={handleChatPanelDragOver}>
           <div className="conversation-box" ref={conversationBoxRef} onScroll={handleConversationScroll}>
             {messages.length === 0 && <span className="placeholder">{t("emptyChat")}</span>}
@@ -761,32 +885,43 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="side-panel">
-          <UsageBar label={t("task")} usage={taskUsage} t={t} />
-          <UsageBar label={t("session")} usage={sessionUsage} t={t} />
+        {sidePanelOpen ? (
+          <aside className="side-panel">
+            <button className="side-collapse-button" onClick={() => setSidePanelOpen(false)} title={t("sidePanelCollapse")} aria-label={t("sidePanelCollapse")}>
+              <ChevronRightIcon />
+            </button>
+            <UsageBar label={t("task")} usage={taskUsage} t={t} />
+            <UsageBar label={t("session")} usage={sessionUsage} t={t} />
 
-          <div className="usage-card">
-            <strong>{t("subAgents")}</strong>
-            <span>{subAgents.filter(a => a.status === "running").length} {t("runningSubAgents")}</span>
-          </div>
-          <div className="tool-list">
-            {subAgents.length === 0 && <p className="placeholder">{t("noTools")}</p>}
-            {subAgents.map(agent => (
-              <article key={agent.taskId} className={`tool-card ${agent.status}`}>
-                <header>
-                  <strong>{agent.subId}</strong>
-                  <span>{agent.status}</span>
-                </header>
-              </article>
-            ))}
-          </div>
+            <div className="usage-card">
+              <strong>{t("subAgents")}</strong>
+              <span>{subAgents.filter(a => a.status === "running").length} {t("runningSubAgents")}</span>
+            </div>
+            <div className="tool-list">
+              {subAgents.length === 0 && <p className="placeholder">{t("noTools")}</p>}
+              {subAgents.map(agent => (
+                <article key={agent.taskId} className={`tool-card ${agent.status}`}>
+                  <header>
+                    <strong>{agent.subId}</strong>
+                    <span>{agent.status}</span>
+                  </header>
+                </article>
+              ))}
+            </div>
 
-          <h2 className="side-heading">{t("tools")}</h2>
-          <div className="tool-list">
-            {tools.length === 0 && <p className="placeholder">{t("noTools")}</p>}
-            {tools.map(tool => <ToolCard key={tool.id} tool={tool} t={t} />)}
-          </div>
-        </aside>
+            <h2 className="side-heading">{t("tools")}</h2>
+            <div className="tool-list">
+              {tools.length === 0 && <p className="placeholder">{t("noTools")}</p>}
+              {tools.map(tool => <ToolCard key={tool.id} tool={tool} t={t} />)}
+            </div>
+          </aside>
+        ) : (
+          <aside className="side-rail">
+            <button className="icon-button" onClick={() => setSidePanelOpen(true)} title={t("sidePanelExpand")} aria-label={t("sidePanelExpand")}>
+              <ChevronLeftIcon />
+            </button>
+          </aside>
+        )}
       </section>
 
       {confirmation && (
@@ -812,6 +947,37 @@ export default function App() {
             <div className="modal-scroll">
               <h2>{t("settingsTitle")}</h2>
               <label className="settings-field">
+                <span>{t("profileSection")}</span>
+                <div className="profile-row">
+                  <select
+                    className="settings-select"
+                    value={activeProfile}
+                    onChange={event => void switchProfile(event.target.value)}
+                  >
+                    {profiles.map(profile => (
+                      <option key={profile.name} value={profile.name}>
+                        {profile.name === "default" ? t("profileDefault") : profile.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => setProfileSaveAsOpen(open => !open)}>{t("profileSaveAs")}</button>
+                  <button type="button" disabled={activeProfile === "default"} onClick={() => void removeProfile()}>{t("profileDelete")}</button>
+                </div>
+                {profileSaveAsOpen && (
+                  <div className="profile-row">
+                    <input
+                      value={profileSaveAsName}
+                      onChange={event => setProfileSaveAsName(event.target.value)}
+                      placeholder={t("profileSaveAsPlaceholder")}
+                      spellCheck={false}
+                    />
+                    <button type="button" className="primary" disabled={!profileSaveAsName.trim()} onClick={() => void saveAsProfile()}>
+                      {t("profileSaveAsConfirm")}
+                    </button>
+                  </div>
+                )}
+              </label>
+              <label className="settings-field">
                 <span>{t("apiKey")}</span>
                 <input
                   type="password"
@@ -830,6 +996,35 @@ export default function App() {
                   spellCheck={false}
                 />
               </label>
+              <label className="settings-field">
+                <span>{t("visionModel")}</span>
+                <input
+                  value={settingsDraft.visionModel}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, visionModel: event.target.value })}
+                  placeholder="doubao-seed-2.1-pro"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("visionBaseURL")}</span>
+                <input
+                  value={settingsDraft.visionBaseURL}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, visionBaseURL: event.target.value })}
+                  placeholder="https://api.anthropic.com"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="settings-field">
+                <span>{t("visionApiKey")}</span>
+                <input
+                  type="password"
+                  value={settingsDraft.visionApiKey}
+                  onChange={event => setSettingsDraft({ ...settingsDraft, visionApiKey: event.target.value })}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </label>
+              <p className="settings-hint">{t("visionHint")}</p>
               <label className="settings-field">
                 <span>{t("baseURL")}</span>
                 <input
@@ -1001,9 +1196,25 @@ function ExternalIcon() {
 
 function GearIcon() {
   return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M10 3 5.5 8l4.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M6 3l4.5 5L6 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

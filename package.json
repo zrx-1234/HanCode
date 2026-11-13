@@ -42,6 +42,7 @@
     "@types/react-dom": "latest",
     "electron": "latest",
     "electron-builder": "^26.15.3",
+    "playwright-core": "^1.65.0",
     "typescript": "latest"
   }
 }

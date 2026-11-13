@@ -208,6 +208,11 @@ button.primary:hover:not(:disabled) {
   gap: 10px;
 }
 
+/* Collapsed side panel: the grid keeps a narrow rail with the expand button. */
+.main-grid.collapsed {
+  grid-template-columns: minmax(0, 1fr) 28px;
+}
+
 .chat-panel, .side-panel {
   min-height: 0;
   background: var(--panel);
@@ -434,6 +439,40 @@ button.primary:hover:not(:disabled) {
 .side-panel {
   overflow: auto;
   padding: 12px;
+  position: relative;
+}
+
+/* Collapse button pinned to the top-right corner of the side panel. */
+.side-collapse-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-strong);
+}
+
+.side-collapse-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--panel-strong);
+}
+
+/* Narrow rail shown while the side panel is collapsed. */
+.side-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .side-heading {
@@ -600,6 +639,38 @@ pre {
   font-size: 11.5px;
   color: var(--muted);
   word-break: break-all;
+}
+
+/* Profile picker row inside the settings modal. */
+.profile-row {
+  display: flex;
+  gap: 6px;
+}
+
+.profile-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.profile-row input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.settings-hint {
+  margin: -4px 0 12px;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 /* ---- markdown ---- */
