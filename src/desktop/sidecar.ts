@@ -6,6 +6,7 @@ import { runAgent } from "../agent/loop";
 import { createAgentSession } from "../agent/types";
 import type { AgentEvent, AgentSession, ConfirmationRequest, PermissionMode } from "../agent/types";
 import { getConfigPath, loadConfig, readRawConfig, writeConfig } from "../config";
+import { activateProfile, deleteProfile, listProfiles, saveProfile } from "../profiles";
 import { buildUserContent } from "./sidecarContent";
 import type { ImageAttachment } from "./sidecarContent";
 import { clearSessionHistory, loadSessionHistory, saveSessionHistory } from "../sessionHistory";
@@ -21,6 +22,10 @@ type SidecarCommand =
   | { id: string; type: "permission.setMode"; mode: PermissionMode }
   | { id: string; type: "config.get" }
   | { id: string; type: "config.update"; config: Record<string, unknown> }
+  | { id: string; type: "profiles.list" }
+  | { id: string; type: "profiles.save"; name: string; config: Record<string, unknown> }
+  | { id: string; type: "profiles.delete"; name: string }
+  | { id: string; type: "profiles.activate"; name: string }
   | { id: string; type: "shutdown" };
 
 type WorkspaceState = {
@@ -133,6 +138,42 @@ async function handleCommand(command: SidecarCommand): Promise<void> {
         });
         return;
       }
+      case "profiles.list": {
+        sendResponse(command.id, true, { profiles: listProfiles() });
+        return;
+      }
+      case "profiles.save": {
+        // When the profile is active this also refreshes the main config;
+        // reload the workspace so the change reaches the running task.
+        saveProfile(command.name, command.config);
+        if (workspace) {
+          workspace.config = loadConfig(workspace.config.workspaceRoot);
+        }
+        sendResponse(command.id, true, {
+          profiles: listProfiles(),
+          workspace: workspace ? workspaceInfo(workspace) : undefined,
+        });
+        return;
+      }
+      case "profiles.delete": {
+        deleteProfile(command.name);
+        sendResponse(command.id, true, { profiles: listProfiles() });
+        return;
+      }
+      case "profiles.activate": {
+        // Copies the profile into the main config file, then hot-reloads the
+        // open workspace so the next turn (even of a running task) uses it.
+        activateProfile(command.name);
+        if (workspace) {
+          workspace.config = loadConfig(workspace.config.workspaceRoot);
+        }
+        sendResponse(command.id, true, {
+          profiles: listProfiles(),
+          config: readRawConfig(),
+          workspace: workspace ? workspaceInfo(workspace) : undefined,
+        });
+        return;
+      }
       case "shutdown": {
         activeTask?.controller.abort();
         resolveAllConfirmations(false);
@@ -183,6 +224,18 @@ async function runTask(taskId: string, prompt: string | ReturnType<typeof buildU
       permissionMode: current.permissionMode,
       emit: event => sendEvent(event),
       confirm: request => requestConfirmation(taskId, request),
+      // Per-turn settings snapshot reading the (hot-reloaded) workspace state:
+      // config edits and permission-mode switches apply from the next turn of
+      // the *running* task, not only the next task.
+      liveSettings: () => ({
+        apiKey: current.config.apiKey,
+        model: current.config.model,
+        baseURL: current.config.baseURL,
+        effort: current.config.effort,
+        thinkingMode: current.config.thinkingMode,
+        vision: current.config.vision,
+        permissionMode: current.permissionMode,
+      }),
     });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {

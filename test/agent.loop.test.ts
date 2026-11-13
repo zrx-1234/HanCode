@@ -265,6 +265,72 @@ describe("agent loop end-to-end", () => {
     });
   });
 
+  describe("live settings (mid-run config changes)", () => {
+    test("model switch between turns applies from the next request", async () => {
+      mockStreamConfigs = [
+        { toolUses: [{ id: "tool_1", name: "list_files", input: { path: "." } }] },
+        { text: "Done with the new model." },
+      ];
+      let callCount = 0;
+      const liveSettings = () => {
+        callCount += 1;
+        // simulate a config hot-reload taking effect after the first turn
+        return callCount === 1 ? { model: "glm-a" } : { model: "glm-b" };
+      };
+
+      const opts = await createOptions({ liveSettings });
+      await runAgent(opts);
+
+      expect((streamParams[0] as { model: string }).model).toBe("glm-a");
+      expect((streamParams[1] as { model: string }).model).toBe("glm-b");
+    });
+
+    test("baseURL/apiKey change constructs a new client, same values reuse one", async () => {
+      mockStreamConfigs = [
+        { toolUses: [{ id: "tool_1", name: "list_files", input: { path: "." } }] },
+        { text: "Done." },
+      ];
+      let callCount = 0;
+      const liveSettings = () => {
+        callCount += 1;
+        return callCount === 1
+          ? { apiKey: "key-a", baseURL: "https://a.example.com" }
+          : { apiKey: "key-b", baseURL: "https://b.example.com" };
+      };
+
+      const opts = await createOptions({ liveSettings });
+      await runAgent(opts);
+
+      // two distinct endpoints → two clients, one per request
+      expect(constructorCalls.length).toBe(2);
+      expect((constructorCalls[0]?.args as { baseURL?: string }).baseURL).toBe("https://a.example.com");
+      expect((constructorCalls[1]?.args as { baseURL?: string }).baseURL).toBe("https://b.example.com");
+    });
+
+    test("vision routing can be enabled mid-run via live settings", async () => {
+      mockStreamConfigs = [
+        { toolUses: [{ id: "tool_1", name: "read_file", input: { path: "shot.png" } }] },
+        { text: "Described." },
+      ];
+      let callCount = 0;
+      const liveSettings = () => {
+        callCount += 1;
+        // vision config appears only from the second resolution onward
+        return callCount === 1
+          ? { vision: undefined }
+          : { vision: { model: "glm-4.6v", baseURL: "https://vision.example.com/api", apiKey: "vision-key" } };
+      };
+
+      const opts = await createOptions({ liveSettings });
+      await writeFile(join(opts.workspaceRoot, "shot.png"), PNG_1X1);
+      await runAgent(opts);
+
+      // first request: no vision → main model; second carries the image tool_result → vision model
+      expect((streamParams[0] as { model: string }).model).toBe("claude-test");
+      expect((streamParams[1] as { model: string }).model).toBe("glm-4.6v");
+    });
+  });
+
   test("image tool results are previewed with a placeholder and fed back as blocks", async () => {
     mockStreamConfigs = [
       { toolUses: [{ id: "tool_1", name: "read_file", input: { path: "shot.png" } }] },

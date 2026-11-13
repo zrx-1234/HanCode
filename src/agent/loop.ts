@@ -12,6 +12,22 @@ import type { ThinkingMode } from "./thinking";
 import { createAgentSession } from "./types";
 import type { AgentEvent, AgentEventSink, AgentSession, ConfirmationRequest, PermissionMode, SubAgentConfig, SubAgentResult, ToolContext, ToolResultContent, UsageTotals } from "./types";
 
+/**
+ * Model/runtime settings that can change *while* a run is in flight. The agent
+ * loop consults the callback once per turn, so config edits (or a permission
+ * mode switch) apply from the next API request without waiting for the task
+ * to finish. Fields left undefined fall back to the static run options.
+ */
+export type LiveSettings = {
+  model?: string;
+  apiKey?: string;
+  baseURL?: string;
+  effort?: EffortConfig;
+  thinkingMode?: ThinkingMode;
+  vision?: { model: string; baseURL: string; apiKey: string } | undefined;
+  permissionMode?: PermissionMode;
+};
+
 const RECENT_TOOL_CALL_WINDOW = 20;
 const REPEATED_TOOL_CALL_LIMIT = 1;
 
@@ -33,6 +49,12 @@ export type RunAgentOptions = {
    * using the main model. Omit to send everything to the main model.
    */
   vision?: { model: string; baseURL: string; apiKey: string };
+  /**
+   * Callback consulted once per turn for settings that may change mid-run
+   * (model switch, config hot-reload, permission mode change). Omit to keep
+   * using the static values captured at task start.
+   */
+  liveSettings?: () => LiveSettings;
   web: WebConfig;
   system: string;
   taskId?: string;
@@ -82,14 +104,36 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
   // Generate a unique task id when the caller didn't supply one.
   const taskId = options.taskId ?? `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  // Set up the Anthropic API client(s). The vision client is created lazily
-  // below, only when vision routing is enabled and an image-bearing request
-  // is about to be sent.
-  const client = new Anthropic({
-    apiKey: options.apiKey || undefined,
-    baseURL: options.baseURL,
-  });
-  let visionClient: Anthropic | undefined;
+  // Set up the Anthropic API clients. Settings may change mid-run (config
+  // hot-reload, model switch, permission mode change), so each turn resolves
+  // the effective values via resolveSettings() and clients are cached per
+  // baseURL+apiKey pair — a new client is only constructed when the endpoint
+  // or credentials actually change.
+  const clients = new Map<string, Anthropic>();
+
+  /** Effective settings for the current turn (live values override static options). */
+  function resolveSettings() {
+    const live = options.liveSettings?.();
+    return {
+      apiKey: live?.apiKey ?? options.apiKey,
+      model: live?.model ?? options.model,
+      baseURL: live?.baseURL ?? options.baseURL,
+      effort: live?.effort ?? options.effort,
+      thinkingMode: live?.thinkingMode ?? options.thinkingMode,
+      vision: live?.vision !== undefined ? live.vision : options.vision,
+      permissionMode: live?.permissionMode ?? options.permissionMode,
+    };
+  }
+
+  function getClient(baseURL: string, apiKey: string): Anthropic {
+    const cacheKey = `${baseURL}\n${apiKey}`;
+    let client = clients.get(cacheKey);
+    if (!client) {
+      client = new Anthropic({ apiKey: apiKey || undefined, baseURL });
+      clients.set(cacheKey, client);
+    }
+    return client;
+  }
 
   // Cancellation: prefer the caller's signal, otherwise create our own.
   const controller = new AbortController();
@@ -191,6 +235,14 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         emit: subEmit,
         permissionMode: options.permissionMode,
         allowedTools: allowedTools.filter(name => name !== "agent"),
+        // Sub-agents inherit the parent's live settings; an explicit model
+        // override for the sub-agent always wins over live changes.
+        liveSettings: options.liveSettings
+          ? () => {
+              const live = options.liveSettings!();
+              return config.model ? { ...live, model: config.model } : live;
+            }
+          : undefined,
       });
       completed = true;
     } catch (error) {
@@ -222,6 +274,11 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         return;
       }
 
+      // 2a′. Re-resolve settings so mid-run changes (config hot-reload,
+      // permission mode switch) apply from this turn's API request onward.
+      const settings = resolveSettings();
+      ctx.permissionMode = settings.permissionMode ?? "normal";
+
       // 2b. Compact the context once it grows past the configured threshold.
       const compactionThreshold = options.compactionThresholdTokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS;
       if (compactionThreshold > 0 && contextEstimateTokens >= compactionThreshold) {
@@ -229,8 +286,8 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
         if (cut !== undefined) {
           const removed = messages.slice(0, cut);
           try {
-            const summaryResponse = await client.messages.create({
-              model: options.model,
+            const summaryResponse = await getClient(settings.baseURL, settings.apiKey).messages.create({
+              model: settings.model,
               max_tokens: 4_000,
               system: "You are a context compactor. Produce a dense, factual summary of the conversation you are given.",
               messages: buildCompactionMessages(removed),
@@ -275,20 +332,15 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
       // configured vision model (text-only models reject image input); once
       // compaction summarizes the images away, requests fall back to the
       // main model automatically.
-      const useVision = options.vision !== undefined && options.vision.model !== "" && messagesContainImages(messages);
-      const requestModel = useVision && options.vision ? options.vision.model : options.model;
-      const requestBaseURL = useVision && options.vision ? options.vision.baseURL : options.baseURL;
-      if (useVision && options.vision && !visionClient) {
-        visionClient = new Anthropic({
-          apiKey: options.vision.apiKey || undefined,
-          baseURL: options.vision.baseURL,
-        });
-      }
-      const stream = (useVision && visionClient ? visionClient : client).messages.stream({
+      const useVision = settings.vision !== undefined && settings.vision.model !== "" && messagesContainImages(messages);
+      const requestModel = useVision && settings.vision ? settings.vision.model : settings.model;
+      const requestBaseURL = useVision && settings.vision ? settings.vision.baseURL : settings.baseURL;
+      const requestApiKey = useVision && settings.vision ? settings.vision.apiKey : settings.apiKey;
+      const stream = getClient(requestBaseURL, requestApiKey).messages.stream({
         model: requestModel,
         max_tokens: 64_000,
-        thinking: buildThinkingParam(requestBaseURL, options.thinkingMode ?? "auto", options.effort),
-        output_config: options.effort === "auto" ? undefined : { effort: options.effort },
+        thinking: buildThinkingParam(requestBaseURL, settings.thinkingMode ?? "auto", settings.effort),
+        output_config: settings.effort === "auto" ? undefined : { effort: settings.effort },
         system: options.system,
         tools: getToolDefinitions(options.web, options.allowedTools),
         messages,
